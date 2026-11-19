@@ -227,33 +227,79 @@ function paySheet({ trial }) {
     ['card', 'Visa / Uzcard / Humo', '#1F2C4C', 'CARD'], ['payme', 'Payme', '#33CCCC', 'PM'], ['click', 'Click', '#2D7FF9', 'CL'],
     ['uzum', 'Uzum Bank', '#7B3FE4', 'UZ'], ['store', 'App Store / Google Play', '#1C1A18', 'APP'],
   ];
+  let ccNum = '4242 4242 4242 4242', ccExp = '12/29';
+  const brandOf = n => { const d = n.replace(/\D/g, ''); return /^8600/.test(d) ? 'UZCARD' : /^9860/.test(d) ? 'HUMO' : /^5[1-5]/.test(d) ? 'MASTERCARD' : /^4/.test(d) ? 'VISA' : ''; };
+  const cardFace = () => `<div class="pay-card" id="payCard">
+      <div class="row" style="justify-content:space-between"><span class="pc-chip"></span><b class="pc-brand" id="pcBrand">${brandOf(ccNum)}</b></div>
+      <div class="pc-num" id="pcNum">${esc(ccNum || '•••• •••• •••• ••••')}</div>
+      <div class="row" style="justify-content:space-between"><span class="pc-name">${esc((S.profile.name || 'Looksy').toUpperCase())}</span><span class="pc-exp" id="pcExp">${esc(ccExp)}</span></div></div>`;
   const body = () => `
     <h2>${trial ? t('trialTitle') : t('premium')}</h2>
     <p class="muted small">${trial ? t('trialSub') : `${fmtPrice(priceWithPromo())} ${t('perMonth')}`}</p>
     <div class="section-title"><h3>${t('payMethod')}</h3></div>
     <div class="stack">${methods.map(([k, n, c, a]) => `<button class="pay-method ${k === method ? 'on' : ''}" data-act="pm" data-k="${k}">
-      <span class="pay-badge" style="background:${c}">${a}</span><span>${n}</span></button>`).join('')}</div>
-    ${method === 'card' ? `<div style="margin-top:14px"><label class="field"><span>${t('cardNumber')}</span><input class="input" id="cc" inputmode="numeric" value="4242 4242 4242 4242" maxlength="19"></label>
-      <label class="field"><span>${t('cardExp')}</span><input class="input" value="12/29" maxlength="5"></label></div>` : ''}
+      <span class="pay-badge" style="background:${c}">${a}</span><span>${n}</span><span class="pm-check">${k === method ? '✓' : ''}</span></button>`).join('')}</div>
+    ${method === 'card' ? `<div class="pay-card-wrap">${cardFace()}</div>
+      <label class="field"><span>${t('cardNumber')}</span><input class="input" id="cc" inputmode="numeric" autocomplete="off" value="${esc(ccNum)}" maxlength="19"></label>
+      <label class="field"><span>${t('cardExp')}</span><input class="input" id="ccExp" inputmode="numeric" autocomplete="off" value="${esc(ccExp)}" maxlength="5"></label>` : ''}
     <div class="row" style="margin-top:14px"><input id="payPromo" class="input" style="height:40px" placeholder="${t('promo')} / LKS-XXXX" value="${esc(S.sub.promoLabel || '')}">
       <button class="btn sm ghost" data-act="payPromo">${t('apply')}</button></div>
     ${discountPct() ? `<p class="small" style="margin:8px 0 0;color:var(--good)">${fmtPrice(priceWithPromo())} ${t('perMonth')} (−${discountPct()}%)</p>` : ''}
     <div style="margin-top:16px"><button class="btn" data-act="doPay">${trial ? t('startTrial') : `${t('pay')} ${fmtPrice(priceWithPromo())} ${t('perMonth')}`}</button></div>
     <p class="demo-note">${t('demoPay')}</p>`;
   return new Promise(resolve => {
-    const draw = () => openSheet(body(), handlers);
+    const bindCard = () => {
+      const cc = $('#cc'), ex = $('#ccExp'); if (!cc) return;
+      cc.addEventListener('input', () => {
+        const d = cc.value.replace(/\D/g, '').slice(0, 16); cc.value = d.replace(/(\d{4})(?=\d)/g, '$1 '); ccNum = cc.value;
+        $('#pcNum').textContent = ccNum || '•••• •••• •••• ••••'; $('#pcBrand').textContent = brandOf(ccNum);
+      });
+      ex.addEventListener('input', () => {
+        const d = ex.value.replace(/\D/g, '').slice(0, 4); ex.value = d.length > 2 ? d.slice(0, 2) + '/' + d.slice(2) : d; ccExp = ex.value;
+        $('#pcExp').textContent = ccExp || 'MM/YY';
+      });
+      [cc, ex].forEach(i => { i.addEventListener('focus', () => $('#payCard')?.classList.add('lift')); i.addEventListener('blur', () => $('#payCard')?.classList.remove('lift')); });
+    };
+    const draw = () => { openSheet(body(), handlers); bindCard(); };
     const handlers = {
       pm: el => { method = el.dataset.k; draw(); },
       payPromo: () => { if (applyCode($('#payPromo').value)) draw(); },
-      doPay: () => {
-        const cc = ($('#cc')?.value || '').replace(/\D/g, '');
+      doPay: el => {
+        const last4 = ccNum.replace(/\D/g, '').slice(-4);
         const label = methods.find(m => m[0] === method)[1];
-        $('.sheet').innerHTML = `<div class="grab"></div><div class="spinner"></div><p class="muted" style="text-align:center">${method === 'card' ? '…' : t('redirecting', label)}</p>`;
+        el.classList.add('loading'); el.disabled = true;
+        const steps = method === 'card'
+          ? [t('pf.check', last4), t('pf.secure'), trial ? t('pf.trial') : t('pf.charge', fmtPrice(priceWithPromo()))]
+          : [t('pf.open', label), t('pf.confirm', label), trial ? t('pf.trial') : t('pf.charge', fmtPrice(priceWithPromo()))];
         setTimeout(() => {
-          const n = now();
-          S.sub = { ...S.sub, status: trial ? 'trial' : 'active', start: n, end: n + (trial ? 7 : 30) * DAY, method: label, last4: cc.slice(-4) };
-          persist(); closeSheet(); toast(trial ? t('trialStarted') : t('paySuccess')); resolve(true);
-        }, 1200);
+          const sh = $('#sheet-root .sheet');
+          sh.innerHTML = `<div class="grab"></div><div class="pay-progress">
+            <svg class="pay-ring" viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="44"/><circle class="arc" cx="50" cy="50" r="44"/>
+              <path class="tick" d="M31 51 L45 64 L70 38"/></svg>
+            <h2 id="payTitle">${t('pf.processing')}</h2>
+            <ul class="pay-steps">${steps.map((s, i) => `<li data-i="${i}"><span class="dot"></span>${esc(s)}</li>`).join('')}</ul>
+            <div id="payDone"></div></div>`;
+          const li = [...sh.querySelectorAll('.pay-steps li')];
+          li.forEach((x, i) => {
+            setTimeout(() => x.classList.add('active'), 150 + i * 750);
+            setTimeout(() => { x.classList.remove('active'); x.classList.add('done'); }, 800 + i * 750);
+          });
+          setTimeout(() => {
+            const n = now();
+            S.sub = { ...S.sub, status: trial ? 'trial' : 'active', start: n, end: n + (trial ? 7 : 30) * DAY, method: label, last4: method === 'card' ? last4 : '' };
+            persist();
+            sh.querySelector('.pay-progress').classList.add('success');
+            try { navigator.vibrate?.([12, 40, 18]); } catch {}
+            $('#payTitle').textContent = trial ? t('trialStarted') : t('paySuccess');
+            $('#payDone').innerHTML = `<div class="receipt">
+              <div><span>${t('pf.plan')}</span><b>${t('premium')}</b></div>
+              <div><span>${t('payMethod')}</span><b>${esc(label)}${method === 'card' && last4 ? ' •••• ' + esc(last4) : ''}</b></div>
+              <div><span>${trial ? t('pf.today') : t('pf.paid')}</span><b>${trial ? '0' : fmtPrice(priceWithPromo())} ${t('sum')}</b></div>
+              ${trial ? `<div><span>${t('pf.firstCharge')}</span><b>${fmtDate(S.sub.end)}</b></div>` : `<div><span>${t('pf.next')}</span><b>${fmtDate(S.sub.end)}</b></div>`}
+              </div><button class="btn" data-act="payDone">${t('pf.continue')}</button><p class="demo-note">${t('demoPay')}</p>`;
+            acts.payDone = () => { closeSheet(); resolve(true); };
+          }, 300 + steps.length * 750);
+        }, 450);
       },
     };
     draw();
@@ -374,17 +420,27 @@ const FLAT = {
   layer: { layer: [0, 4, 54, 58], top: [40, 4, 40, 36], dress: [38, 4, 42, 64], bottom: [36, 38, 42, 56], shoes: [4, 68, 34, 24], bag: [72, 48, 26, 26], acc: [77, 24, 20, 16] },
   plain: { top: [24, 3, 52, 36], dress: [22, 4, 56, 70], bottom: [28, 37, 44, 54], shoes: [3, 74, 30, 20], bag: [70, 52, 28, 28], acc: [3, 42, 22, 16] },
 };
-const MANN = { layer: [17, 9, 66, 38], top: [24, 10, 52, 30], dress: [22, 10, 56, 64], bottom: [29, 37, 42, 46], shoes: [34, 82, 32, 14], bag: [72, 42, 26, 24], acc: [74, 10, 22, 14] };
+// Mannequin boxes are derived from the mannequin drawing (300×400) so garment shoulders, waist and hems line up with the body.
+const MANN = { top: [15, 5.5, 70, 52.5], layer: [12, 3.75, 76, 57], bottom: [16.33, 42, 66, 49.5], dress: [3.67, 7.75, 92.67, 69.5],
+  shoes: [33.33, 74, 33.33, 25], bag: [74, 37.5, 24, 18], acc: [75, 12, 22, 16.5] };
 const Z = { layer: 1, bottom: 2, dress: 2, top: 3, shoes: 4, bag: 5, acc: 6 };
-const MANN_Z = { bottom: 1, dress: 1, top: 2, layer: 3, shoes: 4, bag: 5, acc: 6 };
-const mannequinSVG = `<svg class="mannequin" viewBox="0 0 300 400" fill="none" stroke="#B5ACA2" stroke-width="2"><path d="M138 30 Q150 18 162 30 L162 44 Q196 50 210 64 L204 132 Q196 160 200 190 L190 330 L160 330 L152 230 L148 230 L140 330 L110 330 L100 190 Q104 160 96 132 L90 64 Q104 50 138 44 Z" fill="#FBF9F6" opacity=".8"/><path d="M150 330 L150 380 M118 388 L182 388"/></svg>`;
+const MANN_Z = { bottom: 1, dress: 2, top: 2, layer: 4, shoes: 5, bag: 6, acc: 7 };
+const mannequinSVG = `<svg class="mannequin" viewBox="0 0 300 400" preserveAspectRatio="none" fill="#FBF9F6" stroke="#B5ACA2" stroke-width="1.6" stroke-linejoin="round">
+  <ellipse cx="150" cy="384" rx="58" ry="7" fill="rgba(60,45,30,.12)" stroke="none"/>
+  <path d="M114 214L148 214L146 300C145 330 143 350 141 370L127 370C125 350 123 330 121 300C118 270 115 240 114 214Z"/>
+  <path d="M152 214L186 214C185 240 182 270 179 300C177 330 175 350 173 370L159 370C157 350 155 330 154 300Z"/>
+  <path d="M141 22L159 22L160 44C172 47 190 52 203 62C209 67 210 76 207 84L201 100C197 108 192 112 186 112L184 150C183 165 186 178 190 196C192 206 191 214 188 220L112 220C109 214 108 206 110 196C114 178 117 165 116 150L114 112C108 112 103 108 99 100L93 84C90 76 91 67 97 62C110 52 128 47 140 44Z"/>
+  <ellipse cx="150" cy="21" rx="11" ry="4"/></svg>`;
 
 // Where each piece sits for a given look state (flat lay with/without layer, or mannequin).
 function lookLayout(o, mode, noLayer) {
   const p = { ...o.parts }; if (noLayer) delete p.layer;
   const pos = mode === 'mann' ? MANN : p.layer ? FLAT.layer : FLAT.plain;
   const z = mode === 'mann' ? MANN_Z : Z;
-  return Object.entries(p).filter(([k, v]) => v && pos[k]).map(([k, v]) => ({ k, v, pos: pos[k], z: z[k] }));
+  const neck = (k, v) => mode === 'mann' && k === 'acc' && v.type === 'jewelry';
+  return Object.entries(p).filter(([k, v]) => v && pos[k])
+    .map(([k, v]) => ({ k, v, z: neck(k, v) ? 3 : z[k],
+      pos: neck(k, v) ? [36.7, 8.5, 26.7, 20] : mode === 'mann' && v.type === 'boots' ? [37.5, 78.5, 25, 18.75] : pos[k] }));
 }
 const placeStyle = ({ pos: [l, tp, w, h], z }) => `left:${l}%;top:${tp}%;width:${w}%;height:${h}%;z-index:${z}`;
 const seenLooks = new Set();
@@ -1121,7 +1177,7 @@ function screenOnboarding() {
       <label class="field"><span>${t('morningTime')}</span><input type="time" class="input" data-bind="time" value="${esc(p.time)}"></label></div>${nextBtn()}</div>`;
   else if (st === 5) body = `<div class="onb">${bar}<div class="grow"><h1>${t('premium')}</h1><p class="muted">${t('trialSub')}</p>
       <ul class="why" style="font-size:16px;margin:20px 0">${['feat1', 'feat2', 'feat3', 'feat4'].map(f => `<li>${t(f)}</li>`).join('')}</ul>
-      <div class="card" style="text-align:center"><h2>${t('trialTitle')}</h2><p class="muted small" style="margin:6px 0 0">${t('for')} 0 ${t('perMonth')} → ${fmtPrice(PRICE)} ${t('perMonth')}</p></div></div>
+      <div class="card" style="text-align:center"><h2>${t('trialTitle')}</h2><p class="muted small" style="margin:6px 0 0">${t('pf.today')}: 0 ${t('sum')} → ${fmtPrice(PRICE)} ${t('perMonth')}</p></div></div>
       <button class="btn" data-act="trial">${t('startTrial')}</button></div>`;
   else body = `<div class="onb">${bar}<div class="grow"><h1>${t('onbWardrobe')}</h1><p class="muted">${t('onbWardrobeSub')}</p>
       <div class="grid" style="margin-top:20px">${DEMO_WARDROBE.slice(0, 9).map(([ty, c]) => `<div class="tile"><img src="${svgURL(ty, colorByKey(c).hex)}" alt=""></div>`).join('')}</div></div>
