@@ -1,4 +1,4 @@
-const CACHE = 'looksy-v4';
+const CACHE = 'looksy-v5';
 const SHELL = ['./', './index.html', './css/styles.css', './js/app.js', './js/data.js', './js/garments.js', './js/i18n.js', './js/stylist.js', './manifest.webmanifest',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
@@ -21,7 +21,8 @@ self.addEventListener('fetch', e => {
   }
   // Everything else: network first (always fresh), cache as offline fallback.
   // Own files are revalidated with the server so an update shows up on the next open.
-  const net = url.origin === location.origin ? fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }) : fetch(req);
+  const own = url.origin === location.origin;
+  const net = !own ? fetch(req) : req.mode === 'navigate' ? fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }) : fetch(req, { cache: 'no-cache' });
   e.respondWith(net.then(r => {
     if (r && (r.ok || r.type === 'opaque')) { const c = r.clone(); caches.open(CACHE).then(x => x.put(req, c)); }
     return r;
