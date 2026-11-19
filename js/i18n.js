@@ -114,7 +114,7 @@ const D = {
     goodMorning: n => `Good morning${n ? ', ' + n : ''}`,
     lookOfDay: "Today's look", moreLooks: 'More options', yourOutfits: 'Your outfits', aiOutfit: 'AI Outfit',
     regenerate: 'Refresh', thinking: 'AI is putting looks together…',
-    wearToday: "I'm wearing this", worn: 'Marked as worn', saved: 'Look saved', unsaved: 'Removed from saved',
+    wearToday: 'Wear it', worn: 'Marked as worn', saved: 'Look saved', unsaved: 'Removed from saved',
     liked: "Got it, you like this", disliked: "Got it, less of this",
     flatlay: 'Flat lay', mannequin: 'Mannequin',
     needItems: 'Add at least a top, a bottom and shoes — and AI will build looks.', addItems: 'Add items',
