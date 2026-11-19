@@ -94,6 +94,7 @@ const I = {
   refresh: ic('<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>'),
   hangerOn: ic('<path d="M12 7a2 2 0 1 1 2-2"/><path d="M12 7v2L3 16a1 1 0 0 0 .6 1.8h16.8A1 1 0 0 0 21 16l-9-7"/><path d="M9 14l2 2 4-4"/>'),
   chev: ic('<path d="M9 6l6 6-6 6"/>'),
+  share: ic('<path d="M12 15V3"/><path d="M8 7l4-4 4 4"/><path d="M6 11H5v10h14V11h-1"/>'),
 };
 const wIcon = c => {
   if (c >= 71 && c < 80) return ic('<path d="M7 16a4 4 0 0 1 .5-8 5 5 0 0 1 9.5 1.5A3.5 3.5 0 0 1 17 16z"/><path d="M8 20h.01M12 21h.01M16 20h.01"/>');
@@ -118,11 +119,76 @@ function toast(msg) {
   const el = $('#toast'); el.textContent = msg; el.classList.add('show');
   clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 2200);
 }
+// ---------- bottom sheets: iOS spring in/out + swipe down to dismiss ----------
+let sheetCloseT = null;
 function openSheet(html, handlers = {}) {
-  $('#sheet-root').innerHTML = `<div class="sheet-back" data-act="sheetBack"><div class="sheet"><div class="grab"></div>${html}</div></div>`;
+  clearTimeout(sheetCloseT);
+  const open = $('#sheet-root .sheet-back:not(.closing) .sheet');
+  if (open) open.innerHTML = `<div class="grab"></div>${html}`; // redraw inside an open sheet: no replay
+  else {
+    $('#sheet-root').innerHTML = `<div class="sheet-back" data-act="sheetBack"><div class="sheet"><div class="grab"></div>${html}</div></div>`;
+    bindSheetDrag($('#sheet-root .sheet'));
+  }
   Object.assign(acts, handlers, { sheetBack: (el, e) => { if (e.target === el) closeSheet(); }, closeSheet });
 }
-function closeSheet() { $('#sheet-root').innerHTML = ''; }
+function closeSheet() {
+  const back = $('#sheet-root .sheet-back');
+  if (!back) return;
+  if (reduceMotion()) { $('#sheet-root').innerHTML = ''; return; }
+  back.classList.add('closing');
+  const sh = back.querySelector('.sheet'); void sh.offsetWidth; sh.style.transform = '';
+  clearTimeout(sheetCloseT);
+  sheetCloseT = setTimeout(() => { if (back.isConnected) back.remove(); }, 320);
+}
+function bindSheetDrag(sh) {
+  let y0 = null, dy = 0, t0 = 0, dragging = false;
+  const back = sh.parentElement;
+  const start = y => { y0 = y; dy = 0; t0 = performance.now(); dragging = false; };
+  const move = (y, e) => {
+    if (y0 == null) return;
+    dy = y - y0;
+    if (!dragging && dy > 6 && sh.scrollTop <= 0) { dragging = true; sh.classList.add('dragging'); }
+    if (dragging) {
+      if (e && e.cancelable) e.preventDefault();
+      const d = Math.max(0, dy);
+      sh.style.transform = `translateY(${d}px)`;
+      back.style.backgroundColor = `rgba(0,0,0,${0.35 * Math.max(0, 1 - d / 400)})`;
+    }
+  };
+  const end = () => {
+    if (y0 == null) return;
+    const v = dy / Math.max(1, performance.now() - t0);
+    y0 = null; sh.classList.remove('dragging'); back.style.backgroundColor = '';
+    if (dragging && (dy > 120 || v > 0.6)) { closeSheet(); }
+    else sh.style.transform = '';
+    dragging = false;
+  };
+  sh.addEventListener('touchstart', e => start(e.touches[0].clientY), { passive: true });
+  sh.addEventListener('touchmove', e => move(e.touches[0].clientY, e), { passive: false });
+  sh.addEventListener('touchend', end); sh.addEventListener('touchcancel', end);
+  // mouse: drag by the grab handle
+  sh.addEventListener('mousedown', e => { if (e.target.classList.contains('grab')) { start(e.clientY); e.preventDefault(); } });
+  addEventListener('mousemove', e => move(e.clientY));
+  addEventListener('mouseup', end);
+}
+
+// Fly an element's image from one rect to another (shared-element transition).
+function flyImage(srcImg, targetImg) {
+  if (!srcImg || !targetImg || reduceMotion()) return;
+  const app = $('#app'), framed = getComputedStyle(app).transform !== 'none';
+  const ar = framed ? app.getBoundingClientRect() : { left: 0, top: 0 };
+  const a = srcImg.getBoundingClientRect();
+  const sheet = targetImg.closest('.sheet');
+  sheet.style.animation = 'none'; const b = targetImg.getBoundingClientRect(); sheet.style.animation = '';
+  const clone = srcImg.cloneNode();
+  clone.className = 'fly';
+  Object.assign(clone.style, { left: a.left - ar.left + 'px', top: a.top - ar.top + 'px', width: a.width + 'px', height: a.height + 'px' });
+  app.appendChild(clone);
+  targetImg.style.opacity = '0'; srcImg.style.visibility = 'hidden';
+  void clone.offsetWidth;
+  clone.style.transform = `translate(${b.left - a.left}px, ${b.top - a.top}px) scale(${b.width / a.width}, ${b.height / a.height})`;
+  setTimeout(() => { targetImg.style.opacity = ''; srcImg.style.visibility = ''; clone.remove(); }, 470);
+}
 function applyTheme() {
   const th = S.settings.theme;
   if (th === 'system') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', th);
@@ -305,23 +371,54 @@ const dehydrate = o => ({ key: o.key, reasons: o.reasons, layerNote: o.layerNote
   parts: Object.fromEntries(Object.entries(o.parts).map(([k, v]) => [k, v ? v.id : null])) });
 
 const FLAT = {
-  layer: { layer: [0, 4, 54, 58], top: [40, 4, 40, 36], dress: [38, 4, 42, 64], bottom: [36, 38, 42, 56], shoes: [4, 68, 34, 24], bag: [72, 48, 26, 26], acc: [76, 4, 22, 14] },
-  plain: { top: [24, 3, 52, 36], dress: [22, 4, 56, 70], bottom: [28, 37, 44, 54], shoes: [3, 74, 30, 20], bag: [70, 52, 28, 28], acc: [4, 6, 24, 18] },
+  layer: { layer: [0, 4, 54, 58], top: [40, 4, 40, 36], dress: [38, 4, 42, 64], bottom: [36, 38, 42, 56], shoes: [4, 68, 34, 24], bag: [72, 48, 26, 26], acc: [77, 24, 20, 16] },
+  plain: { top: [24, 3, 52, 36], dress: [22, 4, 56, 70], bottom: [28, 37, 44, 54], shoes: [3, 74, 30, 20], bag: [70, 52, 28, 28], acc: [3, 42, 22, 16] },
 };
 const MANN = { layer: [17, 9, 66, 38], top: [24, 10, 52, 30], dress: [22, 10, 56, 64], bottom: [29, 37, 42, 46], shoes: [34, 82, 32, 14], bag: [72, 42, 26, 24], acc: [74, 10, 22, 14] };
 const Z = { layer: 1, bottom: 2, dress: 2, top: 3, shoes: 4, bag: 5, acc: 6 };
 const MANN_Z = { bottom: 1, dress: 1, top: 2, layer: 3, shoes: 4, bag: 5, acc: 6 };
-const mannequinSVG = `<svg class="mannequin" viewBox="0 0 300 400" fill="none" stroke="var(--muted)" stroke-width="2"><path d="M138 30 Q150 18 162 30 L162 44 Q196 50 210 64 L204 132 Q196 160 200 190 L190 330 L160 330 L152 230 L148 230 L140 330 L110 330 L100 190 Q104 160 96 132 L90 64 Q104 50 138 44 Z" fill="var(--surface)" opacity=".7"/><path d="M150 330 L150 380 M118 388 L182 388"/></svg>`;
+const mannequinSVG = `<svg class="mannequin" viewBox="0 0 300 400" fill="none" stroke="#B5ACA2" stroke-width="2"><path d="M138 30 Q150 18 162 30 L162 44 Q196 50 210 64 L204 132 Q196 160 200 190 L190 330 L160 330 L152 230 L148 230 L140 330 L110 330 L100 190 Q104 160 96 132 L90 64 Q104 50 138 44 Z" fill="#FBF9F6" opacity=".8"/><path d="M150 330 L150 380 M118 388 L182 388"/></svg>`;
 
-function lookHTML(o, { mode = S.viewMode, noLayer = false } = {}) {
+// Where each piece sits for a given look state (flat lay with/without layer, or mannequin).
+function lookLayout(o, mode, noLayer) {
   const p = { ...o.parts }; if (noLayer) delete p.layer;
   const pos = mode === 'mann' ? MANN : p.layer ? FLAT.layer : FLAT.plain;
   const z = mode === 'mann' ? MANN_Z : Z;
-  const imgs = Object.entries(p).filter(([k, v]) => v && pos[k]).map(([k, v]) => {
-    const [l, tp, w, h] = pos[k];
-    return `<img src="${src(v)}" alt="${esc(itemName(v))}" style="left:${l}%;top:${tp}%;width:${w}%;height:${h}%;z-index:${z[k]}">`;
+  return Object.entries(p).filter(([k, v]) => v && pos[k]).map(([k, v]) => ({ k, v, pos: pos[k], z: z[k] }));
+}
+const placeStyle = ({ pos: [l, tp, w, h], z }) => `left:${l}%;top:${tp}%;width:${w}%;height:${h}%;z-index:${z}`;
+const seenLooks = new Set();
+function lookHTML(o, { mode = S.viewMode, noLayer = false, animate = true } = {}) {
+  const parts = lookLayout(o, mode, noLayer);
+  const fresh = animate && !reduceMotion() && !seenLooks.has(o.key);
+  if (animate) seenLooks.add(o.key);
+  const imgs = parts.map((x, i) => {
+    const [l, tp, w, h] = x.pos, cx = l + w / 2;
+    const fly = fresh ? `;--i:${i};--fx:${Math.round((cx - 50) * 0.7)}px;--fy:${tp < 40 ? -26 : 26}px;--fr:${(i % 2 ? 1 : -1) * (3 + i)}deg` : '';
+    return `<img data-k="${x.k}" src="${src(x.v)}" alt="${esc(itemName(x.v))}" style="${placeStyle(x)}${fly}">`;
   }).join('');
-  return `<div class="look">${mode === 'mann' ? mannequinSVG : ''}${imgs}</div>`;
+  return `<div class="look ${mode === 'mann' ? 'mann' : ''} ${fresh ? 'assemble' : ''}">${mannequinSVG}${imgs}</div>`;
+}
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+// Animate an already rendered look to a new state instead of re-rendering it (iOS-style morph).
+function morphLook(el, o, mode, noLayer) {
+  if (!el) return;
+  el.classList.remove('assemble');
+  el.classList.toggle('mann', mode === 'mann');
+  const next = lookLayout(o, mode, noLayer), keys = new Set(next.map(x => x.k));
+  el.querySelectorAll('img[data-k]').forEach(img => {
+    if (!keys.has(img.dataset.k)) { img.classList.add('gone'); }
+  });
+  for (const x of next) {
+    let img = el.querySelector(`img[data-k="${x.k}"]`);
+    if (!img) {
+      img = document.createElement('img'); img.dataset.k = x.k; img.src = src(x.v); img.alt = itemName(x.v);
+      img.className = 'gone'; img.setAttribute('style', placeStyle(x)); el.appendChild(img); void img.offsetWidth;
+    }
+    img.classList.remove('gone');
+    const [l, tp, w, h] = x.pos;
+    Object.assign(img.style, { left: l + '%', top: tp + '%', width: w + '%', height: h + '%', zIndex: x.z });
+  }
 }
 const isSaved = key => S.saved.some(s => s.key === key);
 
@@ -331,6 +428,7 @@ function lookCard(o, i, { compact = false } = {}) {
   return `<div class="look-card" data-i="${i}">
     <div style="position:relative">
       ${lookHTML(o, { noLayer: o._day })}
+      <button class="look-share" data-act="shareLook" data-i="${i}" aria-label="${t('shareLook')}">${I.share}</button>
       ${o.layerRemovable ? `<div class="toggle" style="position:absolute;left:10px;top:10px;z-index:9">
         <button class="${o._day ? '' : 'on'}" data-act="dayToggle" data-i="${i}" data-v="0">${t('morning')}</button>
         <button class="${o._day ? 'on' : ''}" data-act="dayToggle" data-i="${i}" data-v="1">${t('day')}</button></div>` : ''}
@@ -349,9 +447,82 @@ function lookCard(o, i, { compact = false } = {}) {
       </div>
     </div></div>`;
 }
+// ---------- share a look as a Stories-size picture ----------
+const loadImg = s => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = s; });
+function roundRect(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+function wrapText(g, text, x, y, maxW, lh, maxLines = 2) {
+  const words = text.split(' '); let line = '', n = 0;
+  for (const w of words) {
+    const test = line ? line + ' ' + w : w;
+    if (g.measureText(test).width > maxW && line) { g.fillText(line, x, y); y += lh; line = w; if (++n >= maxLines - 1) { line = words.slice(words.indexOf(w)).join(' '); break; } }
+    else line = test;
+  }
+  if (g.measureText(line).width > maxW) { while (line.length && g.measureText(line + '…').width > maxW) line = line.slice(0, -1); line += '…'; }
+  g.fillText(line, x, y); return y + lh;
+}
+async function renderShareImage(o) {
+  const W2 = 1080, H2 = 1920, cv = document.createElement('canvas'); cv.width = W2; cv.height = H2;
+  const g = cv.getContext('2d');
+  try { await Promise.all([document.fonts.load('500 120px "Playfair Display"'), document.fonts.load('500 40px Inter')]); } catch {}
+  const bg = g.createLinearGradient(0, 0, 0, H2); bg.addColorStop(0, '#F6F2EE'); bg.addColorStop(1, '#E7DED4'); g.fillStyle = bg; g.fillRect(0, 0, W2, H2);
+  g.fillStyle = '#1C1A18'; g.textAlign = 'center'; g.font = '500 110px "Playfair Display", Georgia, serif';
+  g.fillText('Looksy', W2 / 2 - 14, 210);
+  const lw = g.measureText('Looksy').width; const sx = W2 / 2 - 14 + lw / 2 + 26, sy = 140;
+  g.beginPath(); g.moveTo(sx, sy - 22); g.lineTo(sx + 6, sy - 6); g.lineTo(sx + 22, sy); g.lineTo(sx + 6, sy + 6); g.lineTo(sx, sy + 22); g.lineTo(sx - 6, sy + 6); g.lineTo(sx - 22, sy); g.lineTo(sx - 6, sy - 6); g.closePath(); g.fill();
+  g.font = '400 36px Inter, sans-serif'; g.fillStyle = '#8A817A';
+  g.fillText(`${t('events.' + (o.event || S.event))} · ${deg(W?.day ?? 18)} · ${fmtDate(now())}`, W2 / 2, 280);
+  // card with the flat lay
+  const cx = 110, cy = 330, cw = 860, ch = 1146;
+  g.save(); g.shadowColor = 'rgba(60,45,30,.18)'; g.shadowBlur = 60; g.shadowOffsetY = 20; g.fillStyle = '#FFFFFF'; roundRect(g, cx, cy, cw, ch, 56); g.fill(); g.restore();
+  g.fillStyle = '#EFE9E3'; roundRect(g, cx + 30, cy + 30, cw - 60, ch - 60, 40); g.fill();
+  const ax = cx + 30, ay = cy + 30, aw = cw - 60, ah = ch - 60;
+  const parts = lookLayout(o, 'flat', o._day).sort((a, b) => a.z - b.z);
+  for (const x of parts) {
+    try {
+      const im = await loadImg(src(x.v));
+      const [l, tp, w, h] = x.pos, bw = aw * w / 100, bh = ah * h / 100;
+      const iw = im.naturalWidth || 400, ih = im.naturalHeight || 400, k = Math.min(bw / iw, bh / ih);
+      const dw = iw * k, dh = ih * k, dx = ax + aw * l / 100 + (bw - dw) / 2, dy = ay + ah * tp / 100 + (bh - dh) / 2;
+      g.save(); g.shadowColor = 'rgba(40,30,20,.22)'; g.shadowBlur = 24; g.shadowOffsetY = 12; g.drawImage(im, dx, dy, dw, dh); g.restore();
+    } catch {}
+  }
+  // why it works
+  g.textAlign = 'left'; g.fillStyle = '#1C1A18'; g.font = '500 40px Inter, sans-serif';
+  let y = cy + ch + 80;
+  for (const r of (o.layerNote ? [o.layerNote, ...o.reasons] : o.reasons).slice(0, 2)) {
+    g.fillStyle = '#C9A27A'; g.fillText('✦', 110, y); g.fillStyle = '#1C1A18';
+    y = wrapText(g, r, 160, y, 820, 50, 3) + 12;
+  }
+  g.textAlign = 'center'; g.fillStyle = '#8A817A'; g.font = '400 32px Inter, sans-serif';
+  g.fillText(t('tagline'), W2 / 2, H2 - 110);
+  g.fillStyle = '#1C1A18'; g.font = '600 32px Inter, sans-serif';
+  g.fillText(location.host + location.pathname.replace(/index\.html$/, ''), W2 / 2, H2 - 62);
+  return new Promise(res => cv.toBlob(res, 'image/png'));
+}
+async function shareLook(o) {
+  if (!o) return;
+  openSheet(`<div class="spinner"></div><p class="muted" style="text-align:center">${t('shareMaking')}</p>`);
+  const blob = await renderShareImage(o);
+  const file = new File([blob], 'looksy-look.png', { type: 'image/png' });
+  const url = URL.createObjectURL(blob);
+  const canShare = !!(navigator.canShare && navigator.canShare({ files: [file] }));
+  openSheet(`<h2 style="margin-bottom:12px">${t('shareLook')}</h2>
+    <img src="${url}" alt="" style="width:62%;margin:0 auto 14px;border-radius:18px;box-shadow:var(--shadow)">
+    <div class="stack">${canShare ? `<button class="btn" data-act="doShare">${I.share}${t('share')}</button>` : ''}
+      <a class="btn ${canShare ? 'ghost' : ''}" href="${url}" download="looksy-look.png" style="text-decoration:none">${t('saveImg')}</a></div>
+    <p class="demo-note">${t('holdToSave')}</p>`, {
+    doShare: async () => { try { await navigator.share({ files: [file], title: 'Looksy', text: t('tagline') }); } catch {} },
+  });
+}
+
 function lookActions(getList) {
   return {
-    dayToggle: el => { const o = getList()[el.dataset.i]; o._day = el.dataset.v === '1'; render(); },
+    dayToggle: el => {
+      const o = getList()[el.dataset.i]; o._day = el.dataset.v === '1';
+      el.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === el));
+      morphLook(el.closest('.look-card').querySelector('.look'), o, S.viewMode, o._day);
+    },
+    shareLook: el => shareLook(getList()[el.dataset.i]),
     vote: el => {
       const o = getList()[el.dataset.i], v = +el.dataset.v;
       for (const id of outfitIds(o)) S.prefs.items[id] = Math.max(-3, Math.min(3, (S.prefs.items[id] || 0) + v * 0.5));
@@ -505,7 +676,13 @@ function screenAI() {
   const looks = hasAccess() && W && !thinking ? getLooks() : [];
   acts = { ...acts, ...lookActions(() => looksCache.list),
     regen: () => { S.reroll++; persist(); thinking = true; render(); setTimeout(() => { thinking = false; render(); }, 900); },
-    mode: el => { S.viewMode = el.dataset.k; persist(); render(); },
+    mode: el => {
+      S.viewMode = el.dataset.k; persist();
+      el.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === el));
+      document.querySelectorAll('#car .look-card').forEach(card => {
+        const o = looksCache.list[card.dataset.i]; if (o) morphLook(card.querySelector('.look'), o, S.viewMode, o._day);
+      });
+    },
   };
   return `
     <div class="topbar"><h1 style="display:flex;align-items:center;gap:8px"><span style="width:20px;height:20px;display:inline-flex">${I.spark}</span>${t('aiOutfit')}</h1>
@@ -526,7 +703,7 @@ function screenWardrobe() {
   acts = { ...acts,
     wcat: el => { S.wcat = el.dataset.k; persist(); render(); },
     add: openScanner,
-    item: el => editItemSheet(byId(el.dataset.id)),
+    item: el => { const img = el.querySelector('img'); editItemSheet(byId(el.dataset.id)); flyImage(img, $('#sheet-root .sheet .tile img')); },
   };
   return `
     <div class="topbar"><h1>${t('myWardrobe')}</h1><button class="icon-btn" data-act="add" aria-label="${t('addItem')}">${I.plus}</button></div>
@@ -608,7 +785,7 @@ function screenOutfits() {
   };
   return `
     <div class="topbar"><h1>${t('yourOutfits')}</h1></div>
-    <div class="toggle" style="margin-bottom:16px"><button class="${S.otab === 'saved' ? 'on' : ''}" data-act="otab" data-k="saved">${t('savedTab')} · ${S.saved.length}</button>
+    <div class="toggle seg" style="margin-bottom:16px"><button class="${S.otab === 'saved' ? 'on' : ''}" data-act="otab" data-k="saved">${t('savedTab')} · ${S.saved.length}</button>
       <button class="${S.otab === 'history' ? 'on' : ''}" data-act="otab" data-k="history">${t('historyTab')} · ${S.worn.length}</button>
       <button class="${S.otab === 'friends' ? 'on' : ''}" data-act="otab" data-k="friends">${t('friendsTab')}</button></div>
     ${S.otab === 'friends' ? friendsFeed() : list.length ? `<div class="grid2">${list.map((o, i) => `<button data-act="openLook" data-i="${i}" style="text-align:left">${lookHTML(o, { mode: 'flat' })}
@@ -749,7 +926,7 @@ async function openScanner() {
   closeSheet();
   const root = document.createElement('div');
   root.className = 'scanner';
-  document.body.appendChild(root);
+  $('#app').appendChild(root);
   let stream = null, added = 0, busy = false;
   root.innerHTML = `
     <video playsinline muted autoplay></video>
@@ -954,10 +1131,15 @@ function screenOnboarding() {
 function finishOnb() { S.onboarded = true; S.tab = 'home'; persist(); render(); }
 
 // ---------------- render ----------------
+let lastScreen = '', viewAnimT;
+function scrollTop0(smooth = false) {
+  const b = smooth && !reduceMotion() ? 'smooth' : 'auto';
+  window.scrollTo({ top: 0, behavior: b }); $('#view').scrollTo({ top: 0, behavior: b });
+}
 function render() {
   applyTheme();
   acts = {
-    tab: el => { S.tab = el.dataset.k; persist(); render(); window.scrollTo(0, 0); },
+    tab: el => { if (S.tab === el.dataset.k) return scrollTop0(true); S.tab = el.dataset.k; persist(); render(); scrollTop0(); },
     event: el => { S.event = el.dataset.k; persist(); render(); },
     loadDemo, subscribe: () => paySheet({ trial: false }).then(render),
     closeSheet,
@@ -967,6 +1149,15 @@ function render() {
   view.classList.toggle('full', !S.onboarded);
   const screens = { home: screenHome, ai: screenAI, wardrobe: screenWardrobe, outfits: screenOutfits, profile: screenProfile };
   view.innerHTML = S.onboarded ? (screens[S.tab] || screenHome)() : screenOnboarding();
+  // screen transitions: crossfade between tabs, push/pop between onboarding steps
+  const screen = S.onboarded ? 'tab:' + S.tab : 'onb:' + S.step;
+  if (lastScreen && screen !== lastScreen && !reduceMotion()) {
+    const cls = !S.onboarded && lastScreen.startsWith('onb:') ? (S.step > +lastScreen.slice(4) ? 'push' : 'pop') : 'enter';
+    view.classList.remove('enter', 'push', 'pop'); void view.offsetWidth; view.classList.add(cls);
+    clearTimeout(viewAnimT); viewAnimT = setTimeout(() => view.classList.remove(cls), 500);
+  }
+  lastScreen = screen;
+  setTimeout(() => document.querySelectorAll('.look.assemble').forEach(l => l.classList.remove('assemble')), 1300);
   tabbar();
   const car = $('#car');
   if (car) car.addEventListener('scroll', () => {

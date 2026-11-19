@@ -1,3 +1,4 @@
+import { garmentSVG } from './garments.js';
 // Garment catalogue, colour palette and illustrated demo items.
 
 // cat: top | layer | bottom | dress | shoes | bag | acc
@@ -89,61 +90,8 @@ export function nearestColor(rgb) {
   }
   return best;
 }
-function shade(hex, amt) {
-  const [r, g, b] = hexToRgb(hex);
-  const f = v => Math.max(0, Math.min(255, Math.round(amt < 0 ? v * (1 + amt) : v + (255 - v) * amt)));
-  return '#' + [f(r), f(g), f(b)].map(v => v.toString(16).padStart(2, '0')).join('');
-}
 
-// ---------- illustrated garments (used for the demo wardrobe) ----------
-const LONG = 'M33 12 L42 9 Q50 15 58 9 L67 12 Q77 15 80 30 L88 82 L79 84 L71 42 L71 92 L29 92 L29 42 L21 84 L12 82 L20 30 Q23 15 33 12 Z';
-const COAT = 'M33 10 L42 7 Q50 13 58 7 L67 10 Q77 13 80 28 L88 80 L79 82 L72 40 L74 98 L26 98 L28 40 L21 82 L12 80 L20 28 Q23 13 33 10 Z';
-const PANTS = 'M30 6 L70 6 L74 96 L55 96 L50 36 L45 96 L26 96 Z';
-
-export function garmentSVG(type, hex) {
-  const d = shade(hex, -0.28), l = shade(hex, 0.25);
-  const light = rgbToHsl(hexToRgb(hex))[2] > 0.85;
-  const st = light ? '#C9C3BA' : d;
-  const P = (p, fill = hex, extra = '') => `<path d="${p}" fill="${fill}" stroke="${st}" stroke-width="1.2" stroke-linejoin="round" ${extra}/>`;
-  const L = (p, c = st, w = 1.2) => `<path d="${p}" fill="none" stroke="${c}" stroke-width="${w}" stroke-linecap="round"/>`;
-  const C = (x, y, r, c = st) => `<circle cx="${x}" cy="${y}" r="${r}" fill="${c}"/>`;
-  let s = '';
-  switch (type) {
-    case 'tshirt': s = P('M32 14 L42 10 Q50 17 58 10 L68 14 L86 28 L77 38 L70 33 L70 90 L30 90 L30 33 L23 38 L14 28 Z') + L('M42 10 Q50 17 58 10'); break;
-    case 'longsleeve': s = P(LONG) + L('M42 9 Q50 15 58 9'); break;
-    case 'sweater': s = P(LONG) + L('M42 9 Q50 16 58 9', st, 2.5) + L('M29 86 L71 86') + L('M79 78 L88 76') + L('M12 76 L21 78'); break;
-    case 'hoodie': s = P('M38 13 Q35 0 50 0 Q65 0 62 13 Z', d) + P(LONG) + L('M36 64 L64 64 L67 80 L33 80 Z') + L('M46 14 L45 30') + L('M54 14 L55 30'); break;
-    case 'shirt': s = P(LONG) + P('M42 9 L46 19 L50 13 L54 19 L58 9 L50 12 Z', l) + L('M50 14 L50 92') + [26, 40, 54, 68, 82].map(y => C(51.5, y, 1.1)).join(''); break;
-    case 'blouse': s = P(LONG) + L('M42 9 Q50 24 58 9') + L('M29 50 Q50 54 71 50'); break;
-    case 'cardigan': s = P(LONG) + L('M42 9 L50 40 L58 9') + L('M50 40 L50 92') + [50, 62, 74, 86].map(y => C(52, y, 1.3)).join('') + L('M29 86 L71 86'); break;
-    case 'blazer': s = P(LONG.replace('L71 92 L29 92', 'L71 94 L29 94')) + P('M42 9 L50 46 L44 30 L37 14 Z', d) + P('M58 9 L50 46 L56 30 L63 14 Z', d) + L('M33 72 L44 72') + L('M56 72 L67 72') + C(50, 58, 1.6); break;
-    case 'denimjacket': s = P(LONG.replace('L71 92 L29 92', 'L71 80 L29 80')) + P('M40 9 L50 20 L60 9 L56 7 L50 13 L44 7 Z', d) + L('M50 20 L50 80') + L('M34 34 L46 34 L46 46 L34 46 Z') + L('M54 34 L66 34 L66 46 L54 46 Z') + L('M29 72 L71 72', l, 1.5); break;
-    case 'leatherjacket': s = P(LONG.replace('L71 92 L29 92', 'L71 82 L29 82')) + P('M42 9 L36 26 L46 22 Z', d) + P('M58 9 L64 26 L54 22 Z', d) + L('M46 12 L56 82', '#B9B4AC', 1.6) + L('M30 76 L70 76'); break;
-    case 'trench': s = P(COAT) + P('M42 7 L50 40 L44 26 L36 12 Z', d) + P('M58 7 L50 40 L56 26 L64 12 Z', d) + L('M28 54 L72 54', d, 3) + [44, 62, 76].map(y => C(42, y, 1.4) + C(58, y, 1.4)).join(''); break;
-    case 'coat': s = P(COAT) + P('M42 7 L50 44 L44 28 L36 12 Z', d) + P('M58 7 L50 44 L56 28 L64 12 Z', d) + L('M50 44 L50 98') + [56, 72].map(y => C(53, y, 1.6)).join('') + L('M32 70 L42 70') + L('M58 70 L68 70'); break;
-    case 'puffer': s = P(COAT.replace(/L74 98 L26 98/, 'L73 86 L27 86')) + [24, 38, 52, 66, 78].map(y => L(`M28 ${y} L72 ${y}`)).join('') + L('M50 10 L50 86', '#B9B4AC', 1.4) + P('M40 6 Q50 0 60 6 L60 12 L40 12 Z', d); break;
-    case 'jeans': s = P(PANTS) + L('M30 13 L70 13') + L('M50 13 L50 30') + L('M33 13 Q36 22 43 22', '#D8A65A') + L('M67 13 Q64 22 57 22', '#D8A65A') + L('M45 96 L50 36 L55 96', '#D8A65A', .8); break;
-    case 'trousers': s = P(PANTS) + L('M30 13 L70 13') + L('M38 20 L36 96') + L('M62 20 L64 96'); break;
-    case 'wide': s = P('M30 6 L70 6 L82 96 L54 96 L50 38 L46 96 L18 96 Z') + L('M30 13 L70 13') + L('M38 20 L32 96') + L('M62 20 L68 96'); break;
-    case 'skirt': s = P('M33 12 L67 12 L82 88 Q50 96 18 88 Z') + L('M33 19 L67 19') + L('M42 20 L36 90') + L('M50 20 L50 92') + L('M58 20 L64 90'); break;
-    case 'shorts': s = P('M28 22 L72 22 L76 66 L54 68 L50 44 L46 68 L24 66 Z') + L('M28 29 L72 29'); break;
-    case 'dress': s = P('M38 4 L44 4 Q50 12 56 4 L62 4 L64 24 Q60 32 62 40 L80 94 Q50 100 20 94 L38 40 Q40 32 36 24 Z') + L('M38 40 L62 40', d, 2); break;
-    case 'sneakers': s = P('M8 60 Q10 42 26 42 L40 46 Q52 52 64 56 L86 60 Q94 62 94 70 L94 74 L8 74 Z') + P('M8 74 L94 74 L94 80 Q50 84 8 80 Z', '#F2EFEA') + L('M32 47 L38 53') + L('M39 49 L45 55') + L('M46 51 L52 57') + L('M8 66 L30 66', d); break;
-    case 'loafers': s = P('M8 66 Q10 52 24 52 L50 56 Q70 58 86 62 Q94 64 94 72 L94 76 L8 76 Z') + P('M8 76 L94 76 L94 81 L8 81 Z', d) + L('M44 57 Q54 66 64 59', '#C9A24A', 1.6); break;
-    case 'boots': s = P('M22 8 L50 8 L52 54 L80 60 Q92 62 92 74 L92 80 L20 80 Z') + P('M20 80 L92 80 L92 87 L20 87 Z', d) + L('M50 12 L50 50') + L('M22 16 L50 16'); break;
-    case 'heels': s = P('M10 70 Q14 54 30 56 L60 64 Q78 66 90 58 L92 62 Q86 74 72 76 L30 78 Z') + P('M14 72 L21 72 L23 93 L18 93 Z', d); break;
-    case 'sandals': s = P('M8 72 Q8 66 16 66 L88 66 Q94 66 94 72 Q94 78 88 78 L16 78 Q8 78 8 72 Z', '#E5DCCF') + L('M30 66 Q40 46 52 66', hex, 5) + L('M58 66 Q66 52 76 66', hex, 5); break;
-    case 'handbag': s = L('M33 42 Q33 14 50 14 Q67 14 67 42', d, 4) + P('M18 42 L82 42 L86 90 L14 90 Z') + P('M18 42 L82 42 L78 62 L22 62 Z', d) + C(50, 62, 3, '#C9A24A'); break;
-    case 'tote': s = L('M30 36 Q30 10 42 10 Q50 10 50 36', d, 3) + L('M50 36 Q50 10 58 10 Q70 10 70 36', d, 3) + P('M20 36 L80 36 L84 92 L16 92 Z'); break;
-    case 'backpack': s = P('M24 24 Q24 8 50 8 Q76 8 76 24 L78 92 L22 92 Z') + L('M32 58 L68 58 L68 84 L32 84 Z') + L('M42 8 Q50 0 58 8', d, 3); break;
-    case 'sunglasses': s = P('M8 40 L44 40 Q44 62 28 62 Q10 62 8 40 Z') + P('M56 40 L92 40 Q90 62 72 62 Q56 62 56 40 Z') + L('M44 44 Q50 38 56 44', d, 2.5); break;
-    case 'jewelry': s = L('M22 16 Q50 74 78 16', hex, 2.5) + C(50, 58, 6, hex) + C(50, 58, 2.5, l); break;
-    case 'scarf': s = P('M24 14 L76 14 L76 30 L24 30 Z') + P('M56 30 L70 30 L72 92 L58 92 Z') + L('M58 92 L58 96 M63 92 L63 96 M68 92 L68 96', d); break;
-    case 'cap': s = P('M18 60 Q18 26 50 26 Q82 26 82 60 Z') + P('M14 60 L94 60 Q96 70 84 70 L14 66 Z', d) + C(50, 26, 2.5, d); break;
-    default: s = P('M20 20 L80 20 L80 80 L20 80 Z');
-  }
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${s}</svg>`;
-}
+// Illustrations live in garments.js
 export const svgURL = (type, hex) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(garmentSVG(type, hex));
 
 // [type, colorKey, brand, made in]
