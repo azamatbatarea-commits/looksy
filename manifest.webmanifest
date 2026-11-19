@@ -1,0 +1,18 @@
+{
+  "name": "Looksy — AI-стилист гардероба",
+  "short_name": "Looksy",
+  "description": "Новый образ из своего гардероба меньше чем за минуту.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F6F2EE",
+  "theme_color": "#F6F2EE",
+  "lang": "ru",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

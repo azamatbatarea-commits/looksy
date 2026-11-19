@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+  <title>Looksy</title>
+  <meta name="description" content="Looksy — AI-стилист гардероба: новый образ из своей одежды меньше чем за минуту.">
+  <meta name="theme-color" content="#F6F2EE" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#141210" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Looksy">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <script>
+    // Apply theme before first paint to avoid a flash.
+    try {
+      var s = JSON.parse(localStorage.getItem('looksy.state') || '{}');
+      var th = (s.settings && s.settings.theme) || 'system';
+      if (th !== 'system') document.documentElement.setAttribute('data-theme', th);
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <div id="app">
+    <main id="view" class="view"></main>
+    <nav id="tabbar" class="tabbar" hidden></nav>
+  </div>
+  <div id="sheet-root"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <input id="file-input" type="file" accept="image/*" hidden>
+  <input id="camera-input" type="file" accept="image/*" capture="environment" hidden>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
