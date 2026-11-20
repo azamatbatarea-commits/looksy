@@ -42,6 +42,12 @@ export function garmentSVG(type, hex) {
     <pattern id="knit" width="3" height="2.6" patternUnits="userSpaceOnUse"><path d="M0 0L1.5 2.2L3 0" fill="none" stroke="${deep}" stroke-opacity=".2" stroke-width=".55"/></pattern>
     <pattern id="grain" width="2.2" height="2.2" patternUnits="userSpaceOnUse"><circle cx=".5" cy=".6" r=".3" fill="${deep}" fill-opacity=".1"/><circle cx="1.6" cy="1.7" r=".26" fill="#fff" fill-opacity=".08"/></pattern>
     <pattern id="gab" width="2" height="2" patternUnits="userSpaceOnUse" patternTransform="rotate(-35)"><rect width=".55" height="2" fill="${deep}" fill-opacity=".11"/></pattern>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="2.2"/></filter>
+    <filter id="soft2" x="-10%" y="-10%" width="120%" height="120%"><feGaussianBlur stdDeviation="1"/></filter>
+    <radialGradient id="key" cx=".3" cy=".18" r=".75"><stop offset="0" stop-color="#fff" stop-opacity="${dark ? 0.22 : light ? 0.5 : 0.32}"/><stop offset=".55" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="${light ? 0.08 : 0.16}"/></linearGradient>
+    <filter id="noise" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="2" seed="7"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 ${dark ? 1 : 0}  0 0 0 0 ${dark ? 1 : 0}  0 0 0 0 ${dark ? 1 : 0}  0 0 0 .55 -.18"/></filter>
   </defs>`;
 
   // drawing helpers
@@ -55,9 +61,18 @@ export function garmentSVG(type, hex) {
   const Ln = (d, c, w = 1, op = 1, cap = 'round') => `<path d="${d}" fill="none" stroke="${c}" stroke-opacity="${op}" stroke-width="${w}" stroke-linecap="${cap}" stroke-linejoin="round"/>`;
   const Bt = (x, y, r = 1.5, g = 'horn') => `<circle cx="${x}" cy="${y}" r="${r}" fill="url(#${g})" stroke="rgba(0,0,0,.25)" stroke-width=".3"/>` +
     (r > 1.2 ? `<circle cx="${x - r * 0.28}" cy="${y}" r=".22" fill="rgba(0,0,0,.45)"/><circle cx="${x + r * 0.28}" cy="${y}" r=".22" fill="rgba(0,0,0,.45)"/>` : '');
-  // silhouette with clipped details and a crisp outline
-  const garment = (d, tex, inner = '', before = '', after = '') =>
-    `${before}<clipPath id="cp"><path d="${d}"/></clipPath>${B(d)}<g clip-path="url(#cp)">${T(d, tex)}${inner}</g>${O(d)}${after}`;
+  // silhouette with clipped details, studio lighting and a crisp outline:
+  //  - fabric grain (turbulence), key light from the top-left, soft shade toward the floor
+  //  - ambient occlusion: a blurred dark stroke along the inside of the edge gives the cloth volume
+  let n = 0;
+  const garment = (d, tex, inner = '', before = '', after = '') => {
+    const id = 'cp' + (n++);
+    return `${before}<clipPath id="${id}"><path d="${d}"/></clipPath>${B(d)}<g clip-path="url(#${id})">${T(d, tex)}
+      <rect x="-2" y="-3" width="104" height="104" filter="url(#noise)" opacity="${dark ? 0.3 : light ? 0.16 : 0.3}"/>${inner}
+      <rect x="-2" y="-3" width="104" height="104" fill="url(#floor)"/><rect x="-2" y="-3" width="104" height="104" fill="url(#key)"/>
+      <path d="${d}" fill="none" stroke="${deep}" stroke-opacity="${light ? 0.22 : 0.38}" stroke-width="5" filter="url(#soft)"/>
+      <path d="${d}" fill="none" stroke="#fff" stroke-opacity="${dark ? 0.1 : 0.18}" stroke-width="1.6" filter="url(#soft2)" transform="translate(.6 .9)"/></g>${O(d)}${after}`;
+  };
 
   const upperFolds = () =>
     F('M30 44C32 50 32 56 31 60') + F('M70 44C68 50 68 56 69 60') +
@@ -238,13 +253,13 @@ export function garmentSVG(type, hex) {
       break;
     }
     case 'shorts':
-      s = garment(SHORTS, isDenim ? 'tw' : 'grain',
+      s = `<g transform="translate(50 47) scale(1.32) translate(-50 -43)">` + garment(SHORTS, isDenim ? 'tw' : 'grain',
         Fl('M28 20L72 20L72.3 26.5L27.7 26.5Z', lo, 0.7) + S('M27.9 25.7L72.1 25.7') +
         Ln('M28.6 26.5C31 33 36 35.5 41 35.5', line, 0.7) + Ln('M71.4 26.5C69 33 64 35.5 59 35.5', line, 0.7) + S('M50.6 26.5L50.6 40') +
         Fl('M24.6 58.5L46.9 60.8L46.1 64.8C46 65.8 45 66.6 44 66.5L26 64.7C24.7 64.5 23.8 63.5 24 62Z', lo, 0.55) +
         Fl('M75.4 58.5L53.1 60.8L53.9 64.8C54 65.8 55 66.6 56 66.5L74 64.7C75.3 64.5 76.2 63.5 76 62Z', lo, 0.55) +
         H('M33 38L31 56', hiOp * 0.8, 2.4) + H('M67 38L69 56', hiOp * 0.6, 2.4) + F('M50.3 40L48 48', 0.3),
-        '', Bt(50, 23.2, 1.1, isDenim ? 'silver' : 'horn'));
+        '', Bt(50, 23.2, 1.1, isDenim ? 'silver' : 'horn')) + '</g>';
       break;
     case 'dress':
       s = garment(DRESS, '',
@@ -270,13 +285,16 @@ export function garmentSVG(type, hex) {
       break;
     }
     case 'loafers': {
-      const up = 'M8 66C9 56 15 52 24 52.5L46 55C62 56.5 76 58.5 86 62C91.5 64 94 67 94 70.5L94 74L8 74Z';
+      // penny loafer, side view: high rounded toe box, moc-toe apron seam, saddle strap, stacked heel
+      const up = 'M8 72C8 63 13 57 21 56C29 55.5 37 58 45 59C58 60.5 72 61.5 82 64C90 66 94 70 94 75L94 78L9 78C8.4 76 8 74 8 72Z';
       s = garment(up, '',
-        Fl('M14 57C20 54.5 34 54.5 46 56.5C40 59.2 26 59.6 14 57Z', deep, 0.6) + S('M48 57.5C60 58 72 60 81 63.5') +
-        Fl('M44 58.5C52 59 60 60 66 61.6L64.5 65.4C57.5 64.2 50.5 63.6 44.2 63.3Z', lo, 0.9, line) + Fl('M52 60.6L58 61.3L57.7 62.8L51.8 62.2Z', deep, 0.8) +
-        H('M58 60C70 61 80 63 87.5 66.5', 0.45, 1.6) + H('M20 60C24 62 28 64 30 68', 0.25, 1.4),
-        '', Fl('M7.5 74L94.5 74L94.5 77.2C94.5 78.3 93.6 79 92.5 79L9.5 79C8.4 79 7.5 78.3 7.5 77.2Z', '#3A2A20', 1) + Ln('M10 76.5L92 76.5', '#6E5544', 0.5, 0.8) +
-        Fl('M8 79L22 79L22 82.2L9.2 82.2C8.5 82.2 8 81.7 8 81Z', '#2A1E17'));
+        Fl('M8 72C8 65 10 60 14 58L18 66C17 70 17 74 18 78L9 78C8.4 76 8 74 8 72Z', lo, 0.4) +
+        Fl('M13 61C18 58 28 58 40 60.5C34 63 22 63.5 13 61Z', deep, 0.65) +
+        Ln('M48 61.6C60 62.2 70 64.2 76 68C80.5 71 80.5 74.5 78.5 77', line, 0.8, 0.8) + S('M47 63.2C59 63.8 68.5 65.6 74.4 69.3C78.4 71.9 78.6 74.6 77 77') +
+        Fl('M41 62.6C50 63.1 58 64 64.5 65.5L63 69.7C56.3 68.5 49.3 67.8 41.6 67.3Z', 'url(#gv)', 1, line) + Fl('M49.5 64.6L56.8 65.3L56.5 66.9L49.3 66.3Z', deep, 0.85) +
+        H('M56 61.6C70 62.6 82 65.2 89.5 69.5', 0.5, 1.7) + H('M80 70C84 71 88 72.5 91 75', 0.35, 1.2) + H('M20 59C26 59 31 60 35 61', 0.3, 1),
+        '', Fl('M7.5 78L94.5 78L94.3 81C94.2 82.2 93.3 83 92 83L10 83C8.6 83 7.5 82 7.5 80.5Z', '#3A2A20') + Ln('M10 80.4L92 80.4', '#7A5E4A', 0.5, 0.9) +
+        Fl('M8 83L24 83L24 86.6L9.6 86.6C8.7 86.6 8 85.9 8 85Z', '#271B14') + Ln('M8.4 84.8L24 84.8', '#4A372A', 0.5));
       break;
     }
     case 'boots': {
@@ -293,20 +311,30 @@ export function garmentSVG(type, hex) {
       break;
     }
     case 'heels': {
-      const up = 'M10 68C12 58 18 54 26 55.5C36 57.5 46 62 56 64C66 66 76 64 86 58C89 56.5 92 57.5 92.5 60C93 63 91 66 88 69C82 74 74 77 64 77.5L24 78C17 78 11 75 10 68Z';
+      // pointed pump, side view: raised heel seat, arch curving to the ground, stiletto
+      const up = 'M14 70C13 62 14 55 18 52C22 53 25 57 28 61C36 70 50 74 64 74C74 74 82 72 89 72C94 72 97 75.5 96 80C95 84.5 91 87 85 87L60 87C46 86 30 79 20 74C17 72.5 15 71.5 14 70Z';
       s = garment(up, '',
-        Fl('M16 61C22 58 32 59 44 63C36 64.5 24 64.5 16 61Z', deep, 0.55) + H('M60 70C71 70 80 66.5 87 61', 0.5, 1.8) + H('M18 64C22 66 28 67 34 67', 0.3, 1.2),
-        Fl('M13 71L21.5 73L19.6 95L17.4 95Z', 'url(#gh)', 1, line),
-        Fl('M17.3 93L19.7 93L19.6 96L17.4 96Z', '#1E1A17') + Ln('M24 77.6L64 77.2', deep, 0.8, 0.8));
+        Fl('M18.5 53C22 55 26 60 30 64C38 70.5 50 73 62 73.6C50 75.2 36 72.2 27 66.2C23 63.2 20 58.5 18.5 53Z', deep, 0.5) +
+        Ln('M19.5 53.8C23 57 26 61 30 64.6C38 70.8 50 73.2 62 73.6', '#fff', 0.7, dark ? 0.15 : 0.35) +
+        H('M66 76.5C74 76 83 75.2 90.5 76', 0.55, 1.8) + H('M22 62C25 66 29 69.5 34 72', 0.3, 1.2) + F('M60 85C70 85.6 80 85.6 88 85', 0.3, 1.2),
+        Fl('M14 70L21.5 73.5L19.8 94L17.4 94Z', 'url(#gh)', 1, line),
+        Fl('M17.2 92.4L19.9 92.4L19.8 95.6L17.3 95.6Z', '#1E1A17') + Ln('M20.5 74.6C32 80.2 46 86 60 87L85 87', deep, 1, 0.85) +
+        `<ellipse cx="72" cy="88.5" rx="20" ry="1.4" fill="#000" fill-opacity=".12"/>`);
       break;
     }
-    case 'sandals':
-      s = Fl('M8 74L94 74L94 76C94 78.5 91 80.5 87 80.5L15 80.5C11 80.5 8 78.5 8 76Z', '#B88A5A', 1, '#8A6440') +
-        Fl('M8 72C8 68 11 66 15 66L86 66C91 66 94 68.5 94 72C94 75 91 77 86 77L15 77C11 77 8 75 8 72Z', '#E6D9C6', 1, '#BFAE96') +
-        `<clipPath id="cp"><path d="M58 66C60 53 74 51 81 58L83 66Z"/></clipPath>` + B('M58 66C60 53 74 51 81 58L83 66Z') + `<g clip-path="url(#cp)">${H('M62 60C66 56 72 55 78 57', hiOp, 1.4)}</g>` + O('M58 66C60 53 74 51 81 58L83 66Z') +
-        Ln('M24 66C24 54 34 49.5 40.5 55.5L42 66', hex, 4.6) + Ln('M24 66C24 54 34 49.5 40.5 55.5L42 66', line, 0.5, 0.6) +
-        Fl('M37.5 52.5L42 51.5L43 56L38.5 57Z', 'none', 1, '#C9A24A') + S('M60 64.5C62 56 72 54.5 79 59.5');
+    case 'sandals': {
+      // flat leather sandal: contoured footbed, wide toe strap, ankle strap with gold buckle
+      const strap = 'M50 69C51 58 59 51 69 51C79 51 86 58 87 68L80 68C79 62 75 58 69 58C63 58 58 62 57 69Z';
+      const strap2 = 'M36 69C37 61 43 56.5 50 57L51.5 61.5C46.5 61.5 43 64.5 42.5 69Z';
+      s = Fl('M8 77L94 75.5L94 78C94 81 90 83.5 85 83.5L16 84C11 84 8 81.5 8 79Z', '#8E6440', 1, '#6E4C30') +
+        Ln('M12 81.5L90 80.6', '#6E4C30', 0.6, 0.8) +
+        Fl('M8 74C8 70 11 68 16 68L82 66.5C89 66.3 94 69 94 72.5C94 76 90 78 84 78L16 79C11 79 8 77 8 74Z', '#E8DCC8', 1, '#BFAE96') +
+        H('M18 70.5L80 69', 0.5, 1.2) + garment(strap2, 'grain', H('M40 64C42 61 45 59.5 48 59.2', hiOp, 1)) +
+        garment(strap, 'grain', S('M53 68.6C54.4 60.4 61 54.5 69 54.5C77 54.5 82.6 60 83.6 67.6') + H('M58 58C62 54.5 66 53.5 71 53.6', hiOp, 1.4)) +
+        Ln('M18 69C17 55 25 47 33 49C37 50 39 53 40 57', hex, 4.4) + Ln('M18 69C17 55 25 47 33 49C37 50 39 53 40 57', line, 0.5, 0.7) +
+        `<rect x="31" y="46.2" width="6" height="5.6" rx="1" fill="none" stroke="url(#gold)" stroke-width="1.5"/>` + Ln('M34 46.6L34 51.4', '#C9A24A', 0.8);
       break;
+    }
     case 'handbag': {
       const bd = 'M16 44C16 42 17.5 41 19.5 41L80.5 41C82.5 41 84 42 84 44L87 86C87.2 88.3 85.6 90 83.3 90L16.7 90C14.4 90 12.8 88.3 13 86Z';
       s = Ln('M33 41C33 22 39 15 50 15C61 15 67 22 67 41', lo, 4.6) + Ln('M33.2 40C33.2 23 39.2 16.5 50 16.5C60.8 16.5 66.8 23 66.8 40', hi, 1.1, 0.7) +
@@ -354,12 +382,19 @@ export function garmentSVG(type, hex) {
       break;
     }
     case 'scarf': {
-      const sc = 'M28 20C28 6 72 6 72 20L74 88L54 88L52 26C52 21.5 48 21.5 48 26L46 88L26 88Z';
-      s = garment(sc, 'rib',
-        Fl('M48 26C48 21.5 52 21.5 52 26L52.3 34L47.7 34Z', deep, 0.35) + F('M30 22C34 14 42 11 50 11', foldOp, 1.6) +
-        H('M33 24L31 84', hiOp, 2.2) + H('M58 24L60 84', hiOp * 0.7, 2.2) + F('M44 30L42 86', foldOp * 0.7, 1.2) + F('M70 30L71.5 86', foldOp * 0.7, 1.2) +
-        Fl('M26.6 74L46.6 74L46.4 79L26.4 79Z', lo, 0.8) + Fl('M53.6 74L73.6 74L73.8 79L53.8 79Z', lo, 0.8)) +
-        Array.from({ length: 10 }, (_, i) => Ln(`M${27 + i * 2.1} 88L${26.6 + i * 2.15} 96`, lo, 1) + Ln(`M${55 + i * 2.1} 88L${55.2 + i * 2.15} 96`, lo, 1)).join('');
+      // knitted scarf as it hangs: neck loop (horseshoe) + two tails of different length, the front one crossing
+      const loop = 'M20 20C20 7 80 7 80 20C80 28 73 33 64 34L60 26C64 25 68 23 68 20C68 14 32 14 32 20C32 23 36 25 40 26L36 34C27 33 20 28 20 20Z';
+      const back = 'M36 30L52 31.5L47 92L29 90Z';
+      const front = 'M50 30C56 31 62 31 67 29L71 80L53 82Z';
+      const fringe = (x0, y0, x1, y1) => Array.from({ length: 9 }, (_, i) => Ln(`M${x0 + (x1 - x0) * i / 8} ${y0 + (y1 - y0) * i / 8}L${x0 + (x1 - x0) * i / 8 - 0.4} ${y0 + (y1 - y0) * i / 8 + 7}`, lo, 1.1)).join('');
+      const band = (d) => Fl(d, lo, 0.85);
+      s = garment(back, 'rib', band('M30.6 78L47.9 79.6L47.6 83.4L30.2 81.8Z') + band('M31 72L48.3 73.5L48.1 75.6L30.8 74.1Z') + F('M44 34L40 88', foldOp, 1.4) + H('M34 36L31.5 86', hiOp, 2)) +
+        fringe(29.6, 90.4, 46.6, 92) +
+        garment(loop, 'rib', F('M24 22C30 29 40 32 50 32C60 32 70 29 76 22', foldOp, 1.8) + H('M26 14C34 10 46 9 52 9.4', hiOp, 2.2)) +
+        garment(front, 'rib', band('M52.6 70L70.3 68.4L70.6 72.2L52.9 73.8Z') + band('M52.2 64.4L70 62.9L70.1 65L52.4 66.5Z') + F('M56 34L58 80', foldOp * 0.8, 1.4) + H('M64 34L68 78', hiOp, 2) +
+          `<path d="M50 30C56 31 62 31 67 29L67.5 35C62 37 56 37 50.5 36Z" fill="${deep}" fill-opacity=".28"/>`) +
+        fringe(53.4, 81.8, 70.6, 80.2);
+      break;
       break;
     }
     case 'cap': {
