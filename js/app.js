@@ -24,8 +24,13 @@ try { S = Object.assign(structuredClone(DEFAULT), JSON.parse(localStorage.getIte
 if (!S.refCode) S.refCode = 'LKS-' + Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]).join('');
 const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('Storage full'); } };
 const now = () => Date.now() + S.shift * DAY;
-const fmtDate = ts => new Date(ts).toLocaleDateString(getLang() === 'ru' ? 'ru-RU' : 'en-GB', { day: 'numeric', month: 'long' });
-const fmtPrice = n => n.toLocaleString(getLang() === 'ru' ? 'ru-RU' : 'en-US');
+const LOCALE = { ru: 'ru-RU', en: 'en-GB', uz: 'uz-Latn-UZ' };
+// browsers' Uzbek locale data is patchy ("M11 21"), so Uzbek dates are spelled out by hand
+const UZ_MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
+const UZ_WD = ['Ya', 'Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh'];
+const fmtDate = ts => { const d = new Date(ts); return getLang() === 'uz' ? `${d.getDate()}-${UZ_MONTHS[d.getMonth()]}` : d.toLocaleDateString(LOCALE[getLang()] || 'ru-RU', { day: 'numeric', month: 'long' }); };
+const wdShort = d => getLang() === 'uz' ? UZ_WD[d.getDay()] : d.toLocaleDateString(LOCALE[getLang()] || 'ru-RU', { weekday: 'short' });
+const fmtPrice = n => n.toLocaleString(getLang() === 'en' ? 'en-US' : 'ru-RU');
 setLang(S.settings.lang);
 
 // ---------------- photos (IndexedDB) ----------------
@@ -58,19 +63,32 @@ async function loadWeather() {
   const city = CITIES.find(c => c.k === S.profile.city) || CITIES[0];
   const cacheKey = 'looksy.weather.' + city.k;
   try {
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&timezone=auto&forecast_days=1`;
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&current=temperature_2m,weather_code&hourly=temperature_2m,weather_code&timezone=auto&forecast_days=7`;
     const r = await fetch(url); if (!r.ok) throw 0;
     const j = await r.json();
-    const at = h => j.hourly.temperature_2m[h];
-    const codes = j.hourly.weather_code.slice(7, 20);
-    W = { now: j.current.temperature_2m, code: j.current.weather_code, morning: at(8), day: Math.max(at(13), at(14), at(15)), evening: at(19),
-      dayCode: Math.max(...codes), ok: true };
+    const T = j.hourly.temperature_2m, C = j.hourly.weather_code;
+    const week = [];
+    for (let d = 0; d < 7 && T.length >= d * 24 + 20; d++) {
+      const b = d * 24;
+      week.push({ date: j.hourly.time[b].slice(0, 10), morning: T[b + 8], day: Math.max(T[b + 13], T[b + 14], T[b + 15]), evening: T[b + 19], code: Math.max(...C.slice(b + 7, b + 20)) });
+    }
+    W = { now: j.current.temperature_2m, code: j.current.weather_code, morning: week[0].morning, day: week[0].day, evening: week[0].evening,
+      dayCode: week[0].code, week, ok: true };
     localStorage.setItem(cacheKey, JSON.stringify(W));
   } catch {
     try { W = JSON.parse(localStorage.getItem(cacheKey)); } catch {}
-    if (!W) W = { now: 12, code: 2, morning: 7, day: 18, evening: 13, dayCode: 2 };
+    if (!W || !W.week) W = climateWeather();
     W.ok = false;
   }
+}
+// Offline fallback: Tashkent monthly normals (avg high / low, °C).
+const CLIMATE = [[6, -3], [9, -1], [15, 4], [22, 10], [27, 14], [33, 19], [36, 21], [34, 19], [29, 14], [21, 8], [13, 3], [8, -1]];
+function climateWeather() {
+  const week = Array.from({ length: 7 }, (_, d) => {
+    const dt = new Date(now() + d * DAY), [hi, lo] = CLIMATE[dt.getMonth()], wob = [0, 1.5, -1, 2, -2, 0.5, 1][d];
+    return { date: dt.toISOString().slice(0, 10), morning: lo + 2 + wob, day: hi + wob, evening: (hi + lo) / 2 + 2 + wob, code: [1, 2, 3, 2, 61, 1, 0][d] };
+  });
+  return { now: week[0].evening, code: week[0].code, morning: week[0].morning, day: week[0].day, evening: week[0].evening, dayCode: week[0].code, week };
 }
 const wKey = c => (c >= 95 ? 95 : c >= 80 ? 80 : c >= 71 ? 71 : c >= 61 ? 61 : c >= 51 ? 51 : c >= 45 ? 45 : Math.min(c, 3));
 const deg = v => `${v > 0 ? '+' : ''}${Math.round(v)}°`;
@@ -343,8 +361,12 @@ async function processPhoto(file) {
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = (y * w + x) * 4; if (px[i + 3] < 128) continue;
     if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+    // centre-weighted: edges carry shadows, folds and leftover background
+    const dx = (x / w - 0.5) * 2, dy = (y / h - 0.5) * 2, wt = Math.max(0.15, 1 - 0.75 * (dx * dx + dy * dy));
+    // very dark / blown-out pixels are mostly shadow or glare
+    const lum = (px[i] * 3 + px[i + 1] * 4 + px[i + 2]) >> 3, lw = lum < 18 || lum > 248 ? 0.4 : 1;
     const key = (px[i] >> 4) << 8 | (px[i + 1] >> 4) << 4 | (px[i + 2] >> 4);
-    const b = buckets.get(key) || [0, 0, 0, 0]; b[0] += px[i]; b[1] += px[i + 1]; b[2] += px[i + 2]; b[3]++; buckets.set(key, b);
+    const b = buckets.get(key) || [0, 0, 0, 0]; b[0] += px[i] * wt * lw; b[1] += px[i + 1] * wt * lw; b[2] += px[i + 2] * wt * lw; b[3] += wt * lw; buckets.set(key, b);
   }
   const top = [...buckets.values()].sort((a, b) => b[3] - a[3]);
   const named = [];
@@ -378,10 +400,15 @@ async function classify(url) {
   const m = await Promise.race([loadModel(), new Promise(r => setTimeout(() => r(null), 9000))]);
   if (!m) return null;
   const img = new Image(); img.src = url; await img.decode();
+  return classifySource(m, img, img.width, img.height);
+}
+// draws any image/video source into a 224² white canvas and maps ImageNet classes to garment types
+async function classifySource(m, source, sw, sh, crop = null) {
   const cv = document.createElement('canvas'); cv.width = cv.height = 224;
   const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 224, 224);
-  const k = 200 / Math.max(img.width, img.height), w = img.width * k, h = img.height * k;
-  g.drawImage(img, (224 - w) / 2, (224 - h) / 2, w, h);
+  const [cx, cy, cw, ch] = crop || [0, 0, sw, sh];
+  const k = 210 / Math.max(cw, ch), w = cw * k, h = ch * k;
+  g.drawImage(source, cx, cy, cw, ch, (224 - w) / 2, (224 - h) / 2, w, h);
   const preds = await m.classify(cv, 10);
   const score = {};
   for (const p of preds) {
@@ -657,9 +684,10 @@ const fmtUZS = n => `${fmtPrice(n)} ${t('sum')}`;
 const prodItem = p => ({ id: 'prod-' + p.id, type: p.type, color: p.color, brand: BRANDS[p.brand].name, photo: false });
 function gapsSection() {
   if (!S.items.length || !W) return '';
-  const gaps = findGaps(S.items, PRODUCTS, W, S.profile, S.event, S.dismissed);
+  const gaps = findGaps(S.items, allProducts(), W, S.profile, S.event, S.dismissed);
   if (!gaps.length) return '';
-  acts.prod = el => { const g = gaps[el.dataset.i]; productSheet(g); };
+  gaps.forEach(g => trackBrand(g.product.id, 'v'));
+  acts.prod = el => { const g = gaps[el.dataset.i]; trackBrand(g.product.id, 'c'); productSheet(g); };
   return `<div class="section-title"><h2>${t('gapTitle')}</h2></div>
     <p class="muted small" style="margin:-6px 0 12px">${t('gapSub')}</p>
     <div class="chips" style="gap:10px;padding-bottom:6px">${gaps.map((g, i) => {
@@ -690,9 +718,79 @@ function productSheet(g) {
     <div class="row" style="margin:14px 0"><span class="badge" style="color:var(--good)">${t('newLooks', g.looks)}</span><span class="badge">✓ ${t('yourSize', esc(size))}</span></div>
     <div class="stack"><button class="btn" data-act="buy">${t('buyOnSite')}</button>
       <button class="btn ghost" data-act="dismiss">${t('notInterested')}</button></div>`, {
-    buy: () => { toast(t('goingToBrand', b.name)); },
+    buy: () => { trackBrand(p.id, 'b'); toast(t('goingToBrand', b.name)); },
     dismiss: () => { S.dismissed.push(p.id); persist(); closeSheet(); render(); },
   });
+}
+
+// ---------- brand cabinet (B2B demo): partner sees reach of its pieces inside Looksy ----------
+const allProducts = () => [...PRODUCTS, ...(S.brandProducts || [])];
+const seenThisSession = new Set();
+function trackBrand(pid, kind) {
+  if (kind === 'v') { if (seenThisSession.has(pid)) return; seenThisSession.add(pid); }
+  S.brandStats = S.brandStats || {}; const s = S.brandStats[pid] || (S.brandStats[pid] = { v: 0, c: 0, b: 0 });
+  s[kind]++; persist();
+}
+const hashN = (str, mod) => { let h = 7; for (const ch of str) h = (h * 31 + ch.charCodeAt(0)) % 100003; return h % mod; };
+// demo baseline = "other Looksy users in Tashkent"; plus this device's real taps
+function productStats(p) {
+  const own = S.brandStats?.[p.id] || { v: 0, c: 0, b: 0 }, isNew = p.id.startsWith('u');
+  const v0 = isNew ? 0 : 380 + hashN(p.id + 'v', 900), c0 = Math.round(v0 * (0.05 + hashN(p.id + 'c', 50) / 1000)), b0 = Math.round(c0 * (0.28 + hashN(p.id + 'b', 20) / 100));
+  return { v: v0 + own.v, c: c0 + own.c, b: b0 + own.b, own };
+}
+const COMMISSION = 0.1, CONV = 0.12;
+function screenBrand() {
+  const bk = S.brandSel || 'oydin', b = BRANDS[bk];
+  const items = allProducts().filter(p => p.brand === bk).map(p => ({ p, s: productStats(p) }));
+  const sum = k => items.reduce((a, x) => a + x.s[k], 0);
+  const v = sum('v'), c = sum('c'), go = sum('b');
+  const sales = items.reduce((a, x) => a + Math.round(x.s.b * CONV) * x.p.price, 0);
+  const days = Array.from({ length: 7 }, (_, i) => Math.round(v / 7 * (0.7 + hashN(bk + i, 60) / 100)));
+  const max = Math.max(...days, 1), floor = Math.min(...days) * 0.6; // scale from 60% of the lowest day so differences read clearly
+  acts = { ...acts,
+    brandBack: () => { S.tab = 'profile'; persist(); render(); },
+    brandSel: el => { S.brandSel = el.dataset.k; persist(); render(); },
+    addProduct: () => addProductSheet(bk),
+  };
+  return `
+    <div class="topbar"><button class="icon-btn" data-act="brandBack" aria-label="${t('back')}">${I.back}</button><span class="badge">B2B · ${t('demo')}</span></div>
+    <h1>${t('brandCab')}</h1><p class="muted" style="margin:4px 0 14px">${t('brandCabSub')}</p>
+    <div class="chips" style="margin-bottom:14px">${Object.entries(BRANDS).map(([k, x]) => `<button class="chip ${k === bk ? 'on' : ''}" data-act="brandSel" data-k="${k}">${esc(x.name)}</button>`).join('')}</div>
+    <div class="grid2">
+      <div class="card kpi"><span class="muted small">${t('kViews')}</span><h2>${fmtPrice(v)}</h2></div>
+      <div class="card kpi"><span class="muted small">${t('kClicks')}</span><h2>${fmtPrice(c)}</h2><span class="small" style="color:var(--good)">CTR ${(c / Math.max(v, 1) * 100).toFixed(1)}%</span></div>
+      <div class="card kpi"><span class="muted small">${t('kGo')}</span><h2>${fmtPrice(go)}</h2></div>
+      <div class="card kpi"><span class="muted small">${t('kSales')}</span><h2>${fmtSum(sales)}</h2><span class="muted small">${t('kFee', fmtSum(sales * COMMISSION))}</span></div>
+    </div>
+    <div class="card" style="margin-top:10px"><div class="row" style="justify-content:space-between"><b>${t('kWeek')}</b><span class="muted small">${t('kViews').toLowerCase()}</span></div>
+      <div class="bars">${days.map((d, i) => { const dt = new Date(now() - (6 - i) * DAY);
+        return `<div class="bar"><span class="small">${d}</span><i style="height:${Math.max(8, (d - floor) / Math.max(1, max - floor) * 100)}%"></i><span class="muted small">${wdShort(dt)}</span></div>`; }).join('')}</div></div>
+    <div class="section-title"><h3>${t('kProducts')}</h3><button data-act="addProduct">+ ${t('addProduct')}</button></div>
+    <div class="list">${items.map(({ p, s }) => `<div class="list-row" style="flex-wrap:nowrap">
+      <img src="${src(prodItem(p))}" alt="" style="width:44px;height:44px;object-fit:contain;background:var(--photo-bg);border-radius:10px;padding:3px;flex:none">
+      <div style="flex:1;min-width:0"><b class="small">${TYPES[p.type][getLang()] || TYPES[p.type].ru} · ${colorByKey(p.color)[getLang()] || colorByKey(p.color).ru}</b>
+        <div class="muted small">${fmtUZS(p.price)}${s.own.v || s.own.c ? ` · <span style="color:var(--good)">${t('kYou', s.own.v, s.own.c)}</span>` : ''}</div></div>
+      <div class="small" style="text-align:right;white-space:nowrap"><b>${fmtPrice(s.v)}</b> 👁<br><b>${fmtPrice(s.c)}</b> ↗</div></div>`).join('')}</div>
+    <div class="card" style="margin-top:14px"><b>${t('bizModel')}</b><p class="muted small" style="margin:6px 0 0">${t('bizModelSub')}</p></div>
+    <p class="demo-note">${t('brandDemoNote')}</p>`;
+}
+function addProductSheet(bk) {
+  let type = 'sweater', color = 'beige';
+  const draw = () => openSheet(`<h2 style="margin-bottom:6px">${t('addProduct')}</h2><p class="muted small" style="margin:0 0 12px">${esc(BRANDS[bk].name)}</p>
+    <div class="tile" style="width:120px;margin:0 auto 12px"><img src="${svgURL(type, colorByKey(color).hex)}" alt=""></div>
+    <label class="field"><span>${t('type')}</span><select class="input" id="np-type">${Object.entries(TYPES).map(([k, x]) => `<option value="${k}" ${k === type ? 'selected' : ''}>${x[getLang()] || x.ru}</option>`).join('')}</select></label>
+    <div class="field"><span>${t('color')}</span><div class="swatches">${COLORS.map(c => `<button class="swatch ${c.k === color ? 'on' : ''}" style="background:${c.hex}" data-act="npColor" data-k="${c.k}" aria-label="${c[getLang()] || c.ru}"></button>`).join('')}</div></div>
+    <label class="field"><span>${t('price')}, ${t('sum')}</span><input class="input" id="np-price" inputmode="numeric" value="${TYPES[type].price}"></label>
+    <button class="btn" data-act="npSave">${t('publishProduct')}</button>`, {
+    npColor: el => { type = $('#np-type').value; color = el.dataset.k; redraw(); },
+    npSave: () => {
+      const price = +$('#np-price').value.replace(/\D/g, '') || TYPES[type].price;
+      S.brandProducts = [...(S.brandProducts || []), { id: 'u' + uid(), brand: bk, type: $('#np-type').value, color, price }];
+      persist(); closeSheet(); toast(t('productAdded')); render();
+    },
+  });
+  const redraw = () => { draw(); $('#np-type').addEventListener('change', e => { type = e.target.value; redraw(); }); };
+  redraw();
 }
 
 function screenHome() {
@@ -713,12 +811,45 @@ function screenHome() {
     <div style="margin-bottom:12px">${eventChips()}</div>
     ${!hasAccess() ? paywallCard() : !W ? '<div class="spinner"></div>' : looks.length ? lookCard(looks[0], 0, { compact: true }) : needItemsCard()}
     ${gapsSection()}
-    ${S.items.length ? `<div class="section-title"><h2>${t('stats')}</h2></div>
-    <div class="grid" style="grid-template-columns:repeat(3,1fr)">
-      <div class="card"><h2>${S.items.length}</h2><span class="muted small">${t('statItems')}</span></div>
-      <div class="card"><h2>${used}%</h2><span class="muted small">${t('statUsed')}</span></div>
-      <div class="card"><h2>${S.worn.length}</h2><span class="muted small">${t('statLooks')}</span></div>
-    </div>` : ''}`;
+    ${S.items.length ? statsSection(used) : ''}`;
+}
+
+// ---------- wardrobe economics: value, cost per wear, items brought back into use ----------
+const itemPrice = it => +it.price || TYPES[it.type].price || 0;
+function wardrobeStats() {
+  const wears = {}, revived = new Map(), lastSeen = {};
+  [...S.worn].sort((a, b) => a.date - b.date).forEach(w => w.ids.forEach(id => {
+    wears[id] = (wears[id] || 0) + 1;
+    const it = byId(id); if (!it) return;
+    const prev = lastSeen[id] ?? it.added ?? w.date;
+    if (!revived.has(id) && (lastSeen[id] == null || w.date - prev >= 14 * DAY)) revived.set(id, itemPrice(it));
+    lastSeen[id] = w.date;
+  }));
+  const value = S.items.reduce((a, it) => a + itemPrice(it), 0);
+  const totalWears = Object.values(wears).reduce((a, b) => a + b, 0);
+  const forgotten = S.items.filter(it => lastSeen[it.id] == null || now() - lastSeen[it.id] > 30 * DAY);
+  return { value, cpw: totalWears ? Math.round(value / totalWears) : 0, saved: [...revived.values()].reduce((a, b) => a + b, 0), revivedN: revived.size, forgotten, totalWears };
+}
+const fmtSum = n => n >= 1e6 ? `${(n / 1e6).toFixed(1).replace('.0', '')} ${t('mln')}` : fmtPrice(Math.round(n / 1000) * 1000);
+function statsSection(used) {
+  const st = wardrobeStats();
+  acts.forgot = el => { const it = byId(el.dataset.id); if (it) editItemSheet(it); };
+  return `<div class="section-title"><h2>${t('stats')}</h2></div>
+    <div class="card save-card">
+      <span class="muted small">${t('savedTitle')}</span>
+      <div class="save-num">${fmtSum(st.saved)} <span>${t('sum')}</span></div>
+      <p class="small muted" style="margin:4px 0 0">${st.revivedN ? t('savedSub', st.revivedN) : t('savedEmpty')}</p>
+      <div class="meter"><i style="width:${used}%"></i></div>
+      <p class="small" style="margin:6px 0 0">${t('usedLine', used)}</p>
+    </div>
+    <div class="grid stat-grid" style="margin-top:10px">
+      <div class="card"><h3>${fmtSum(st.value)}</h3><span class="muted small">${t('statValue')}</span></div>
+      <div class="card"><h3>${st.cpw ? fmtSum(st.cpw) : '—'}</h3><span class="muted small">${t('statCpw')}</span></div>
+      <div class="card"><h3>${S.worn.length}</h3><span class="muted small">${t('statLooks')}</span></div>
+    </div>
+    ${st.forgotten.length ? `<div class="section-title"><h3>${t('forgotTitle', st.forgotten.length)}</h3></div>
+      <p class="muted small" style="margin:-6px 0 10px">${t('forgotSub')}</p>
+      <div class="chips" style="gap:8px">${st.forgotten.slice(0, 8).map(it => `<button class="tile" style="width:72px;flex:none;padding:8px" data-act="forgot" data-id="${it.id}"><img src="${src(it)}" alt="${esc(itemName(it))}"></button>`).join('')}</div>` : ''}`;
 }
 function usedPct() {
   if (!S.items.length) return 0;
@@ -727,10 +858,53 @@ function usedPct() {
   return Math.round(100 * [...ids].filter(id => byId(id)).length / S.items.length);
 }
 
+// ---------- week plan: one look per day for the 7-day forecast, no piece repeated on consecutive days ----------
+let weekCache = { sig: '', days: [] };
+const dayEvent = (date, i) => {
+  if (S.weekEvents?.[date]) return S.weekEvents[date];
+  const wd = new Date(date + 'T12:00').getDay();
+  return wd === 0 || wd === 6 ? 'meeting' : (S.event === 'event' || S.event === 'meeting' ? 'study' : S.event);
+};
+function getWeek() {
+  const week = W?.week || climateWeather().week;
+  const sig = [week.map(d => d.date + d.day).join(), S.reroll, S.items.map(i => i.id + i.type + i.color).join(), JSON.stringify(S.weekEvents || {}), getLang(), S.event].join('/');
+  if (weekCache.sig === sig) return weekCache.days;
+  const planned = [...S.worn], days = [];
+  week.forEach((d, i) => {
+    const ev = dayEvent(d.date, i), dayNow = now() + i * DAY;
+    const look = generate(S.items, { weather: { morning: d.morning, day: d.day, code: d.code }, event: ev, seed: 'w' + d.date + S.reroll,
+      prefs: S.prefs, worn: planned, profile: S.profile, now: dayNow }, 1)[0];
+    if (look) { look.event = ev; planned.unshift({ ids: outfitIds(look), date: dayNow }); }
+    days.push({ ...d, ev, look });
+  });
+  weekCache = { sig, days };
+  return days;
+}
+function weekView() {
+  const days = getWeek(), sel = Math.min(S.weekDay || 0, days.length - 1), d = days[sel];
+  const used = new Set(days.flatMap(x => x.look ? outfitIds(x.look) : []));
+  const L = days.map(x => x.look).filter(Boolean);
+  acts = { ...acts, ...lookActions(() => [d.look]),
+    wday: el => { S.weekDay = +el.dataset.i; persist(); render(); },
+    wevent: el => { S.weekEvents = { ...(S.weekEvents || {}), [d.date]: el.dataset.k }; persist(); render(); },
+  };
+  return `<p class="muted small" style="margin:0 0 12px">${t('weekSummary', L.length, used.size)}</p>
+    <div class="chips week-strip" style="margin-bottom:12px">${days.map((x, i) => {
+      const dt = new Date(x.date + 'T12:00');
+      return `<button class="wday ${i === sel ? 'on' : ''}" data-act="wday" data-i="${i}"><span class="small">${i === 0 ? t('today') : wdShort(dt)}</span>
+        <b>${dt.getDate()}</b><span class="wd-ic">${wIcon(x.code)}</span><span class="small">${deg(x.day)}</span></button>`;
+    }).join('')}</div>
+    <div class="chips" style="margin-bottom:14px">${['study', 'work', 'meeting', 'event'].map(e => `<button class="chip ${d.ev === e ? 'on' : ''}" data-act="wevent" data-k="${e}">${t('events.' + e)}</button>`).join('')}</div>
+    <p class="small muted" style="margin:0 0 10px">${t('w.' + wKey(d.code))} · ${t('morning')} ${deg(d.morning)} · ${t('day')} ${deg(d.day)}</p>
+    ${d.look ? lookCard(d.look, 0, { compact: true }) : needItemsCard()}`;
+}
+
 let thinking = false;
 function screenAI() {
-  const looks = hasAccess() && W && !thinking ? getLooks() : [];
+  const week = S.aiView === 'week';
+  const looks = hasAccess() && W && !thinking && !week ? getLooks() : [];
   acts = { ...acts, ...lookActions(() => looksCache.list),
+    aiView: el => { S.aiView = el.dataset.k; persist(); render(); },
     regen: () => { S.reroll++; persist(); thinking = true; render(); setTimeout(() => { thinking = false; render(); }, 900); },
     mode: el => {
       S.viewMode = el.dataset.k; persist();
@@ -748,9 +922,11 @@ function screenAI() {
       <div class="toggle"><button class="${S.viewMode === 'flat' ? 'on' : ''}" data-act="mode" data-k="flat">${t('flatlay')}</button>
         <button class="${S.viewMode === 'mann' ? 'on' : ''}" data-act="mode" data-k="mann">${t('mannequin')}</button></div>
     </div>
-    <div style="margin-bottom:14px">${eventChips()}</div>
+    <div class="toggle seg" style="margin-bottom:14px"><button class="${week ? '' : 'on'}" data-act="aiView" data-k="today">${t('today')}</button>
+      <button class="${week ? 'on' : ''}" data-act="aiView" data-k="week">${t('weekPlan')}</button></div>
+    ${week ? '' : `<div style="margin-bottom:14px">${eventChips()}</div>`}
     ${!hasAccess() ? paywallCard() : thinking || !W ? `<div class="card empty"><div class="spinner"></div><p class="muted">${t('thinking')}</p></div>`
-      : looks.length ? `<div class="carousel" id="car">${looks.map((o, i) => lookCard(o, i)).join('')}</div>
+      : week ? weekView() : looks.length ? `<div class="carousel" id="car">${looks.map((o, i) => lookCard(o, i)).join('')}</div>
         <div class="dots">${looks.map((_, i) => `<i class="${i === 0 ? 'on' : ''}"></i>`).join('')}</div>` : needItemsCard()}`;
 }
 
@@ -876,6 +1052,7 @@ function screenProfile() {
     },
     editSizes: () => sizesSheet(),
     editStyle: () => styleSheet(),
+    openBrand: () => { S.tab = 'brand'; persist(); render(); scrollTop0(); },
   };
   const statusLine = s.status === 'trial' ? t('daysLeft', left) : s.status === 'active' ? t('renews', fmtDate(s.end))
     : s.status === 'canceled' ? t('endsOn', fmtDate(s.end)) : '';
@@ -908,12 +1085,13 @@ function screenProfile() {
 
     <div class="section-title"><h3>${t('settings')}</h3></div>
     <div class="list">
+      <button class="list-row" data-act="openBrand"><span>${t('brandCab')} <span class="badge">B2B</span></span>${I.chev.replace('<svg', '<svg width="18" height="18"')}</button>
       <button class="list-row" data-act="editStyle"><span>${t('stylePrefs')}</span>${I.chev.replace('<svg', '<svg width="18" height="18"')}</button>
       <button class="list-row" data-act="editSizes"><span>${t('sizes')}</span><span class="muted small">${esc(p.topSize)} · ${esc(p.bottomSize)} · ${esc(p.shoeSize)}</span></button>
       <div class="list-row"><span>${t('city')}</span><span class="muted">${(CITIES.find(c => c.k === p.city) || CITIES[0])[getLang()]}</span></div>
       <div class="list-row"><span>${t('notifications')}</span><input type="time" class="input" style="width:110px;height:36px" data-bind="time" value="${esc(p.time)}"></div>
       <button class="list-row" data-act="notif"><span>${t('testNotif')}</span>${I.chev.replace('<svg', '<svg width="18" height="18"')}</button>
-      <div class="list-row"><span>${t('language')}</span><div class="toggle">${['ru', 'en'].map(l => `<button class="${getLang() === l ? 'on' : ''}" data-act="setLang" data-k="${l}">${l.toUpperCase()}</button>`).join('')}</div></div>
+      <div class="list-row"><span>${t('language')}</span><div class="toggle">${['ru', 'uz', 'en'].map(l => `<button class="${getLang() === l ? 'on' : ''}" data-act="setLang" data-k="${l}">${l.toUpperCase()}</button>`).join('')}</div></div>
       <div class="list-row"><span>${t('theme')}</span><div class="toggle">${[['system', 'themeSystem'], ['light', 'themeLight'], ['dark', 'themeDark']].map(([k, n]) => `<button class="${S.settings.theme === k ? 'on' : ''}" data-act="setTheme" data-k="${k}">${t(n)}</button>`).join('')}</div></div>
     </div>
     <p class="muted small" style="margin:12px 4px">${t('privacy')}</p>
@@ -988,7 +1166,8 @@ async function openScanner() {
     <video playsinline muted autoplay></video>
     <div class="scan-frame"><i></i><i></i><i></i><i></i><div class="scan-line"></div></div>
     <div class="scan-top"><button class="icon-btn" data-s="close" aria-label="${t('close')}">${ic('<path d="M6 6l12 12M18 6L6 18"/>')}</button>
-      <div class="scan-title">${t('scanTitle')}<div class="scan-ai small" style="opacity:.75;font-weight:400"></div></div><span style="width:40px"></span></div>
+      <div class="scan-title">${t('scanTitle')}<div class="scan-ai small" style="opacity:.75;font-weight:400"></div></div>
+      <button class="icon-btn lens-btn" data-s="lens" hidden aria-label="lens">1×</button><span class="lens-gap" style="width:40px"></span></div>
     <div class="scan-hint">${t('scanHint')}</div>
     <div class="scan-bottom"><button class="icon-btn" data-s="gallery" aria-label="${t('fromGallery')}">${I.image}</button>
       <button class="shutter" data-s="shoot" aria-label="${t('takePhoto')}"></button>
@@ -998,12 +1177,57 @@ async function openScanner() {
   const aiEl = root.querySelector('.scan-ai');
   const aiStatus = () => { aiEl.textContent = (modelState === 'ready' ? '✦ ' : '') + t('aiModel.' + (modelState === 'idle' ? 'loading' : modelState)); };
   aiStatus(); loadModel().then(aiStatus);
+  // live AI: about once a second the network looks at what's inside the frame and says what it sees
+  const live = document.createElement('div'); live.className = 'scan-live'; live.hidden = true; root.appendChild(live);
+  let lastLive = null, liveBusy = false;
+  const liveTick = async () => {
+    if (liveBusy || busy || !stream || modelState !== 'ready' || !video.videoWidth) return;
+    liveBusy = true;
+    try {
+      const m = await loadModel(); if (!m) return;
+      const vr = video.getBoundingClientRect(), fr = frame.getBoundingClientRect(), vw = video.videoWidth, vh = video.videoHeight;
+      const s = Math.min(vr.width / vw, vr.height / vh), ox = (vr.width - vw * s) / 2, oy = (vr.height - vh * s) / 2;
+      const sx = Math.max(0, (fr.left - vr.left - ox) / s), sy = Math.max(0, (fr.top - vr.top - oy) / s);
+      const r = await classifySource(m, video, vw, vh, [sx, sy, Math.min(vw - sx, fr.width / s), Math.min(vh - sy, fr.height / s)]);
+      lastLive = r && r.p >= 15 ? r : null;
+      live.hidden = !lastLive;
+      if (lastLive) live.innerHTML = `<span class="dot"></span>${t('aiSees')}: <b>${TYPES[lastLive.type][getLang()] || TYPES[lastLive.type].ru}</b> · ${lastLive.p}%`;
+      frame.classList.toggle('locked', !!lastLive && lastLive.p >= 35);
+    } catch {} finally { liveBusy = false; }
+  };
+  const liveTimer = setInterval(liveTick, 900);
 
+  // Show the camera's whole field of view: ask for the sensor's native 4:3 (a portrait size makes iPhone crop),
+  // fit the video with "contain", put the frame over the real picture and use the widest lens / lowest zoom available.
+  let wideId = null, mainId = null, useWide = false;
+  const lensBtn = root.querySelector('.lens-btn');
+  const layoutFrame = () => {
+    const vw = video.videoWidth, vh = video.videoHeight; if (!vw) return;
+    const ew = video.clientWidth, eh = video.clientHeight, s = Math.min(ew / vw, eh / vh);
+    const dw = vw * s, dh = vh * s, l = (ew - dw) / 2, tp = (eh - dh) / 2, pad = Math.min(dw, dh) * 0.035;
+    Object.assign(frame.style, { left: l + pad + 'px', top: tp + pad + 'px', width: dw - 2 * pad + 'px', height: dh - 2 * pad + 'px', right: 'auto', aspectRatio: 'auto' });
+    hint.style.top = Math.min(eh - 150, tp + dh + 12) + 'px';
+  };
+  video.addEventListener('loadedmetadata', layoutFrame); addEventListener('resize', layoutFrame);
+  const open = async deviceId => {
+    stream?.getTracks().forEach(tr => tr.stop());
+    const size = { width: { ideal: 1920 }, height: { ideal: 1440 } };
+    stream = await navigator.mediaDevices.getUserMedia({ video: deviceId ? { deviceId: { exact: deviceId }, ...size } : { facingMode: { ideal: 'environment' }, ...size }, audio: false });
+    video.srcObject = stream; await video.play().catch(() => {});
+    const track = stream.getVideoTracks()[0], caps = track.getCapabilities?.() || {};
+    if (caps.zoom && caps.zoom.min < (track.getSettings?.().zoom ?? 1)) { try { await track.applyConstraints({ advanced: [{ zoom: caps.zoom.min }] }); } catch {} }
+    layoutFrame();
+  };
   const startCamera = async () => {
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw 0;
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 1600 } }, audio: false });
-      video.srcObject = stream; await video.play().catch(() => {});
+      await open(null);
+      try {
+        const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+        const wide = cams.find(d => /ultra ?wide|сверхширок|ultra-wide|0[.,]5/i.test(d.label));
+        const main = cams.find(d => /back|rear|environment|задн|тыл/i.test(d.label) && d !== wide && !/tele|теле|dual|triple/i.test(d.label));
+        if (wide && main) { wideId = wide.deviceId; mainId = main.deviceId; lensBtn.hidden = false; root.querySelector('.lens-gap').hidden = true; }
+      } catch {}
     } catch {
       root.querySelector('.shutter').style.visibility = 'hidden';
       frame.style.display = 'none'; hint.style.display = 'none';
@@ -1013,20 +1237,25 @@ async function openScanner() {
       root.appendChild(empty);
     }
   };
-  const stop = () => { stream?.getTracks().forEach(tr => tr.stop()); stream = null; };
+  const stop = () => { stream?.getTracks().forEach(tr => tr.stop()); stream = null; removeEventListener('resize', layoutFrame); clearInterval(liveTimer); };
+  const switchLens = async () => {
+    useWide = !useWide; lensBtn.textContent = useWide ? '0.5×' : '1×';
+    try { await open(useWide ? wideId : mainId); } catch { useWide = false; lensBtn.textContent = '1×'; try { await open(null); } catch {} }
+  };
   const close = () => {
     stop(); root.remove();
     if (added) { S.tab = 'wardrobe'; S.wcat = 'all'; persist(); toast(t('scanAddedToast', added)); }
     render();
   };
 
-  // crop the frame area out of the cover-scaled video
+  // crop the frame area out of the contain-fitted video (≈ the whole camera picture)
   const grab = () => {
     const vw = video.videoWidth, vh = video.videoHeight; if (!vw) return null;
     const vr = video.getBoundingClientRect(), fr = frame.getBoundingClientRect();
-    const s = Math.max(vr.width / vw, vr.height / vh);
-    const ox = (vw * s - vr.width) / 2, oy = (vh * s - vr.height) / 2;
-    const sx = (fr.left - vr.left + ox) / s, sy = (fr.top - vr.top + oy) / s, sw = fr.width / s, sh = fr.height / s;
+    const s = Math.min(vr.width / vw, vr.height / vh);
+    const ox = (vr.width - vw * s) / 2, oy = (vr.height - vh * s) / 2;
+    const sx = Math.max(0, (fr.left - vr.left - ox) / s), sy = Math.max(0, (fr.top - vr.top - oy) / s);
+    const sw = Math.min(vw - sx, fr.width / s), sh = Math.min(vh - sy, fr.height / s);
     const cv = document.createElement('canvas'); cv.width = Math.round(sw); cv.height = Math.round(sh);
     cv.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
     return new Promise(r => cv.toBlob(r, 'image/jpeg', 0.92));
@@ -1038,6 +1267,7 @@ async function openScanner() {
     try {
       [r] = await Promise.all([processPhoto(blob), new Promise(res => setTimeout(res, 1300))]);
       ai = await classify(r.url).catch(() => null);
+      if (lastLive && (!ai || lastLive.p > ai.p)) ai = lastLive; // the live view often sees the item better than the cut-out
     } catch { root.classList.remove('busy'); hint.textContent = t('scanHint'); busy = false; toast('Error'); return; }
     root.classList.remove('busy'); hint.textContent = t('scanHint'); aiStatus();
     showResult({ id: uid(), type: ai ? ai.type : r.guess, color: r.colors[0], brand: '', madeIn: '', size: S.profile.topSize, photo: true, _url: r.url, _colors: r.colors, _ai: ai });
@@ -1083,13 +1313,14 @@ async function openScanner() {
     const el = e.target.closest('[data-s]'); if (!el || el.closest('.scan-result')) return;
     const a = el.dataset.s;
     if (a === 'close') close();
+    else if (a === 'lens' && !busy) switchLens();
     else if (a === 'shoot' && !busy) {
       const p = grab(); if (!p) return;
       const fl = document.createElement('div'); fl.className = 'flash'; root.appendChild(fl); setTimeout(() => fl.remove(), 400);
       analyse(await p);
     } else if (a === 'gallery' && !busy) {
       const inp = $('#file-input'); inp.value = '';
-      inp.onchange = () => { const f = inp.files[0]; if (f) analyse(f); };
+      inp.onchange = () => { const f = inp.files[0]; if (f) { lastLive = null; analyse(f); } };
       inp.click();
     }
   });
@@ -1113,15 +1344,17 @@ function editItemSheet(item) {
       `<button class="swatch ${k === it.color ? 'on' : ''}" style="background:${colorByKey(k).hex}" data-act="fcolor" data-k="${k}" aria-label="${colorByKey(k)[getLang()]}"></button>`).join('')}</div></div>
     <div class="grid2"><label class="field"><span>${t('brand')}</span><input class="input" id="f-brand" list="brands" value="${esc(it.brand)}" placeholder="Zara"></label>
       <label class="field"><span>${t('size')}</span><input class="input" id="f-size" value="${esc(it.size)}"></label></div>
-    <label class="field"><span>${t('madeIn')}</span><input class="input" id="f-made" value="${esc(it.madeIn)}" placeholder="Uzbekistan"></label>
+    <div class="grid2"><label class="field"><span>${t('madeIn')}</span><input class="input" id="f-made" value="${esc(it.madeIn)}" placeholder="Uzbekistan"></label>
+      <label class="field"><span>${t('price')}, ${t('sum')}</span><input class="input" id="f-price" inputmode="numeric" value="${esc(it.price || '')}" placeholder="${fmtPrice(TYPES[it.type].price)}"></label></div>
     <datalist id="brands">${['Zara', 'H&M', 'Mango', 'Uniqlo', 'Massimo Dutti', 'Koton', 'LC Waikiki', 'Nike', 'Adidas', "Levi's", 'Local brand'].map(b => `<option value="${esc(b)}">`).join('')}</datalist>
     <div class="row"><button class="btn" data-act="fsave">${t('save')}</button>${it._new ? '' : `<button class="btn ghost" data-act="fdel" style="color:var(--bad)">${t('del')}</button>`}</div>`, handlers);
-  const readForm = () => { it.type = $('#f-type').value; it.brand = $('#f-brand').value.trim(); it.size = $('#f-size').value.trim(); it.madeIn = $('#f-made').value.trim(); };
+  const readForm = () => { it.type = $('#f-type').value; it.brand = $('#f-brand').value.trim(); it.size = $('#f-size').value.trim(); it.madeIn = $('#f-made').value.trim();
+    it.price = +$('#f-price').value.replace(/\D/g, '') || 0; };
   const handlers = {
     fcolor: el => { readForm(); it.color = el.dataset.k; draw(); },
     fsave: async () => {
       readForm();
-      const clean = { id: it.id, type: it.type, color: it.color, brand: it.brand, size: it.size, madeIn: it.madeIn, photo: !!it.photo, added: it.added || now() };
+      const clean = { id: it.id, type: it.type, color: it.color, brand: it.brand, size: it.size, madeIn: it.madeIn, price: it.price || 0, photo: !!it.photo, added: it.added || now() };
       if (it._new && it._url) { imgs[it.id] = it._url; try { await idbTx('readwrite', st => st.put(it._url, it.id)); } catch {} }
       const i = S.items.findIndex(x => x.id === it.id);
       if (i >= 0) S.items[i] = clean; else S.items.unshift(clean);
@@ -1163,7 +1396,7 @@ function screenOnboarding() {
   const p = S.profile;
   let body;
   if (st === 0) body = `<div class="onb"><div class="hero grow">${logo()}<p class="muted" style="max-width:260px;margin:14px auto">${t('tagline')}</p></div>
-      <div class="row" style="justify-content:center;margin-bottom:16px"><div class="toggle">${['ru', 'en'].map(l => `<button class="${getLang() === l ? 'on' : ''}" data-act="lang" data-k="${l}">${l === 'ru' ? 'Русский' : 'English'}</button>`).join('')}</div></div>
+      <div class="row" style="justify-content:center;margin-bottom:16px"><div class="toggle">${['ru', 'uz', 'en'].map(l => `<button class="${getLang() === l ? 'on' : ''}" data-act="lang" data-k="${l}">${({ ru: 'Русский', uz: "O'zbekcha", en: 'English' })[l]}</button>`).join('')}</div></div>
       ${nextBtn(t('getStarted'))}</div>`;
   else if (st === 1) body = `<div class="onb">${bar}<div class="grow"><h1 style="margin-bottom:20px">${t('onbName')}</h1>
       <input class="input" data-bind="name" value="${esc(p.name)}" placeholder="${t('namePh')}" autocomplete="given-name">
@@ -1203,7 +1436,7 @@ function render() {
   subTick();
   const view = $('#view');
   view.classList.toggle('full', !S.onboarded);
-  const screens = { home: screenHome, ai: screenAI, wardrobe: screenWardrobe, outfits: screenOutfits, profile: screenProfile };
+  const screens = { home: screenHome, ai: screenAI, wardrobe: screenWardrobe, outfits: screenOutfits, profile: screenProfile, brand: screenBrand };
   view.innerHTML = S.onboarded ? (screens[S.tab] || screenHome)() : screenOnboarding();
   // screen transitions: crossfade between tabs, push/pop between onboarding steps
   const screen = S.onboarded ? 'tab:' + S.tab : 'onb:' + S.step;

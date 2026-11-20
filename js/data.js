@@ -39,6 +39,18 @@ export const TYPES = {
 
 export const CATS = ['top', 'layer', 'bottom', 'dress', 'shoes', 'bag', 'acc'];
 
+// Typical Tashkent retail price per type (UZS) — used when the user didn't enter a price.
+const PRICE = { tshirt: 120000, longsleeve: 160000, shirt: 280000, blouse: 300000, sweater: 380000, hoodie: 350000, cardigan: 400000, blazer: 750000,
+  denimjacket: 550000, leatherjacket: 1200000, trench: 900000, coat: 1300000, puffer: 1100000, jeans: 420000, trousers: 380000, wide: 400000,
+  skirt: 320000, shorts: 200000, dress: 520000, sneakers: 650000, loafers: 550000, boots: 800000, heels: 500000, sandals: 250000,
+  handbag: 600000, tote: 250000, backpack: 400000, sunglasses: 200000, jewelry: 300000, scarf: 180000, cap: 120000 };
+for (const k in TYPES) TYPES[k].price = PRICE[k];
+const UZ_TYPES = { tshirt: 'Futbolka', longsleeve: 'Longsliv', shirt: "Ko'ylak", blouse: 'Bluzka', sweater: 'Sviter', hoodie: 'Xudi', cardigan: 'Kardigan', blazer: 'Pidjak',
+  denimjacket: 'Jinsi kurtka', leatherjacket: 'Charm kurtka', trench: 'Trench', coat: 'Palto', puffer: 'Pufer kurtka', jeans: 'Jinsi', trousers: 'Shim', wide: 'Keng shim',
+  skirt: 'Yubka', shorts: 'Shorti', dress: "Ko'ylak (libos)", sneakers: 'Krossovka', loafers: 'Lofer', boots: 'Botinka', heels: 'Tufli', sandals: 'Sandal',
+  handbag: 'Sumka', tote: 'Shoper', backpack: 'Ryukzak', sunglasses: "Ko'zoynak", jewelry: 'Taqinchoq', scarf: "Sharf", cap: 'Kepka' };
+for (const k in TYPES) TYPES[k].uz = UZ_TYPES[k];
+
 export const COLORS = [
   { k: 'black',    hex: '#1F1F1F', n: 1, ru: 'чёрный',     en: 'black' },
   { k: 'white',    hex: '#F4F3EF', n: 1, ru: 'белый',      en: 'white' },
@@ -62,6 +74,10 @@ export const COLORS = [
   { k: 'orange',   hex: '#D97636', n: 0, ru: 'оранжевый',  en: 'orange' },
   { k: 'yellow',   hex: '#E2BF4C', n: 0, ru: 'жёлтый',     en: 'yellow' },
 ];
+const UZ_COLORS = { black: 'qora', white: 'oq', grey: 'kulrang', cream: 'sutrang', beige: 'bej', camel: 'tuya rang', brown: 'jigarrang', navy: "to'q ko'k", denim: 'denim',
+  gold: 'tilla rang', olive: 'zaytun', sage: 'shalfey', green: 'yashil', lightblue: 'havorang', blue: "ko'k", purple: 'binafsha', pink: 'pushti', red: 'qizil',
+  burgundy: "to'q qizil", orange: "to'q sariq", yellow: 'sariq' };
+for (const c of COLORS) c.uz = UZ_COLORS[c.k];
 export const colorByKey = k => COLORS.find(c => c.k === k) || COLORS[0];
 
 export function hexToRgb(hex) {
@@ -110,10 +126,10 @@ export const DEMO_WARDROBE = [
 
 // ---------- partner brands (fictional demo brands for the pitch) ----------
 export const BRANDS = {
-  oydin: { name: 'Oydin Atelier', tag: { ru: 'ателье, Ташкент', en: 'atelier, Tashkent' } },
-  sayr:  { name: 'Sayr Basics',   tag: { ru: 'базовый гардероб', en: 'everyday basics' } },
-  lumo:  { name: 'Lumo Studio',   tag: { ru: 'обувь и аксессуары', en: 'shoes & accessories' } },
-  kok:   { name: 'Kök Denim',     tag: { ru: 'деним, Фергана', en: 'denim, Fergana' } },
+  oydin: { name: 'Oydin Atelier', tag: { ru: 'ателье, Ташкент', en: 'atelier, Tashkent', uz: 'atelye, Toshkent' } },
+  sayr:  { name: 'Sayr Basics',   tag: { ru: 'базовый гардероб', en: 'everyday basics', uz: 'asosiy garderob' } },
+  lumo:  { name: 'Lumo Studio',   tag: { ru: 'обувь и аксессуары', en: 'shoes & accessories', uz: 'poyabzal va aksessuarlar' } },
+  kok:   { name: 'Kök Denim',     tag: { ru: 'деним, Фергана', en: 'denim, Fergana', uz: "denim, Farg'ona" } },
 };
 // [id, brand, type, color, price UZS]
 export const PRODUCTS = [
@@ -128,11 +144,11 @@ export const PRODUCTS = [
 
 // ---------- demo friends ----------
 export const FRIENDS = [
-  { id: 'f1', ru: 'Малика', en: 'Malika', hue: '#E7B3BC', likes: 14,
+  { id: 'f1', ru: 'Малика', en: 'Malika', uz: 'Malika', hue: '#E7B3BC', likes: 14,
     w: [['blouse', 'white'], ['sweater', 'pink'], ['wide', 'beige'], ['skirt', 'black'], ['dress', 'burgundy'], ['trench', 'beige'], ['heels', 'black'], ['loafers', 'brown'], ['handbag', 'burgundy'], ['jewelry', 'gold']] },
-  { id: 'f2', ru: 'Тимур', en: 'Timur', hue: '#A9C4E2', likes: 9,
+  { id: 'f2', ru: 'Тимур', en: 'Timur', uz: 'Temur', hue: '#A9C4E2', likes: 9,
     w: [['tshirt', 'white'], ['hoodie', 'black'], ['shirt', 'lightblue'], ['jeans', 'denim'], ['trousers', 'grey'], ['leatherjacket', 'black'], ['sneakers', 'white'], ['boots', 'brown'], ['backpack', 'black'], ['cap', 'navy']] },
-  { id: 'f3', ru: 'Дильноза', en: 'Dilnoza', hue: '#9FB295', likes: 21,
+  { id: 'f3', ru: 'Дильноза', en: 'Dilnoza', uz: 'Dilnoza', hue: '#9FB295', likes: 21,
     w: [['longsleeve', 'cream'], ['sweater', 'sage'], ['blouse', 'lightblue'], ['jeans', 'denim'], ['skirt', 'beige'], ['cardigan', 'grey'], ['coat', 'camel'], ['sneakers', 'white'], ['loafers', 'black'], ['tote', 'camel'], ['sunglasses', 'black']] },
 ];
 export const EXTRA_FRIEND_NAMES = [['Камила', 'Kamila'], ['Жасур', 'Jasur'], ['Нигора', 'Nigora'], ['Санжар', 'Sanjar'], ['Мадина', 'Madina'], ['Бобур', 'Bobur']];
@@ -149,5 +165,5 @@ export const IMAGENET_MAP = [
 ];
 
 export const CITIES = [
-  { k: 'tashkent', ru: 'Ташкент', en: 'Tashkent', lat: 41.2995, lon: 69.2401 },
+  { k: 'tashkent', ru: 'Ташкент', en: 'Tashkent', uz: 'Toshkent', lat: 41.2995, lon: 69.2401 },
 ];
