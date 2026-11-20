@@ -1,4 +1,4 @@
-const CACHE = 'looksy-v7';
+const CACHE = 'looksy-v8';
 const SHELL = ['./', './index.html', './css/styles.css', './js/app.js', './js/data.js', './js/garments.js', './js/i18n.js', './js/stylist.js', './manifest.webmanifest',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
