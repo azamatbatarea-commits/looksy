@@ -325,55 +325,16 @@ function paySheet({ trial }) {
 }
 
 // ---------------- image processing ----------------
-// Neural background removal (IS-Net, runs on the phone via ONNX/WASM, ~40 MB downloaded once and cached).
-let bgP = null, bgState = 'idle', bgPct = 0;
-const BG_CFG = { model: 'small', output: { format: 'image/png' } };
-function loadBg() {
-  if (S.settings.mlBg === false) { bgState = 'off'; return Promise.resolve(null); }
-  if (!bgP) {
-    bgState = 'loading'; const parts = {};
-    bgP = (async () => {
-      const m = await import('https://esm.sh/@imgly/background-removal@1.4.5');
-      await m.preload({ ...BG_CFG, progress: (key, cur, tot) => {
-        if (!/fetch/.test(key) || !tot) return; parts[key] = [cur, tot];
-        const v = Object.values(parts); bgPct = Math.round(100 * v.reduce((a, x) => a + x[0], 0) / v.reduce((a, x) => a + x[1], 0));
-      } });
-      bgState = 'ready'; bgPct = 100; return m;
-    })().catch(() => { bgState = 'off'; bgP = null; return null; });
-  }
-  return bgP;
-}
-async function processPhoto(file, onStage = () => {}) {
+async function processPhoto(file) {
   const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(file); });
   const max = 640, k = Math.min(1, max / Math.max(img.width, img.height));
   const w = Math.round(img.width * k), h = Math.round(img.height * k);
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
   const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, w, h);
-  // 1) try the neural network: it separates the item from beds, carpets and patterned floors
-  let ml = false;
-  if (S.settings.mlBg !== false) {
-    const wait = setInterval(() => onStage(bgState === 'loading' ? t('bg.loading', bgPct) : t('bg.cutting')), 400);
-    try {
-      const m = await Promise.race([loadBg(), new Promise(r => setTimeout(() => r(null), bgState === 'ready' ? 0 : 60000))]);
-      if (m) {
-        onStage(t('bg.cutting'));
-        const src = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.92));
-        const outBlob = await m.removeBackground(src, BG_CFG);
-        const bmp = await createImageBitmap(outBlob);
-        g.clearRect(0, 0, w, h); g.drawImage(bmp, 0, 0, w, h); ml = true;
-      }
-    } catch { g.clearRect(0, 0, w, h); g.drawImage(img, 0, 0, w, h); ml = false; } finally { clearInterval(wait); }
-  }
   const data = g.getImageData(0, 0, w, h), px = data.data;
-  let cut;
-  if (ml) {
-    let opaque = 0; for (let i = 3; i < px.length; i += 4) if (px[i] > 128) opaque++;
-    const r = opaque / (w * h); cut = r > 0.02 && r < 0.97;
-    if (!cut) { g.drawImage(img, 0, 0, w, h); const d2 = g.getImageData(0, 0, w, h); px.set(d2.data); }
-  } else cut = floodFillCut(px, w, h);
-  return finishCut(cv, g, data, px, w, h, cut, ml);
+  return finishCut(cv, g, data, px, w, h, floodFillCut(px, w, h));
 }
-// 2) fallback: flood-fill from the borders with the median border colour (works on plain light backgrounds)
+// flood-fill from the borders with the median border colour (works on plain light backgrounds)
 function floodFillCut(px, w, h) {
   // background colour = median of border pixels
   const border = [];
@@ -400,7 +361,7 @@ function floodFillCut(px, w, h) {
   if (!cut) for (let i = 3; i < px.length; i += 4) px[i] = 255;
   return cut;
 }
-function finishCut(cv, g, data, px, w, h, cut, ml) {
+function finishCut(cv, g, data, px, w, h, cut) {
   // dominant colour of the remaining pixels
   const buckets = new Map();
   let minX = w, minY = h, maxX = 0, maxY = 0;
@@ -424,7 +385,7 @@ function finishCut(cv, g, data, px, w, h, cut, ml) {
   out.getContext('2d').drawImage(cv, cut ? minX : 0, cut ? minY : 0, cw, ch, 0, 0, cw, ch);
   const ar = ch / cw;
   const guess = ar > 1.7 ? 'jeans' : ar < 0.7 ? 'sneakers' : 'tshirt';
-  return { url: out.toDataURL('image/png'), colors: named.length ? named : ['black'], guess, ml };
+  return { url: out.toDataURL('image/png'), colors: named.length ? named : ['black'], guess };
 }
 
 // ---------------- on-device neural network (MobileNet, ImageNet) ----------------
@@ -1098,9 +1059,7 @@ function screenProfile() {
     },
     editSizes: () => sizesSheet(),
     editStyle: () => styleSheet(),
-    openBrand: () => { S.tab = 'brand'; persist(); render(); scrollTop0(); },
-    mlBg: el => { S.settings.mlBg = el.dataset.v === '1'; if (S.settings.mlBg && bgState === 'off') bgState = 'idle'; persist(); render(); },
-  };
+    openBrand: () => { S.tab = 'brand'; persist(); render(); scrollTop0(); },  };
   const statusLine = s.status === 'trial' ? t('daysLeft', left) : s.status === 'active' ? t('renews', fmtDate(s.end))
     : s.status === 'canceled' ? t('endsOn', fmtDate(s.end)) : '';
   const p = S.profile;
@@ -1137,10 +1096,7 @@ function screenProfile() {
       <button class="list-row" data-act="editSizes"><span>${t('sizes')}</span><span class="muted small">${esc(p.topSize)} · ${esc(p.bottomSize)} · ${esc(p.shoeSize)}</span></button>
       <div class="list-row"><span>${t('city')}</span><span class="muted">${(CITIES.find(c => c.k === p.city) || CITIES[0])[getLang()]}</span></div>
       <div class="list-row"><span>${t('notifications')}</span><input type="time" class="input" style="width:110px;height:36px" data-bind="time" value="${esc(p.time)}"></div>
-      <button class="list-row" data-act="notif"><span>${t('testNotif')}</span>${I.chev.replace('<svg', '<svg width="18" height="18"')}</button>
-      <div class="list-row"><span>${t('bg.setting')}<br><span class="muted small">${t('bg.settingSub')}</span></span><div class="toggle">
-        <button class="${S.settings.mlBg !== false ? 'on' : ''}" data-act="mlBg" data-v="1">${t('bg.on')}</button><button class="${S.settings.mlBg === false ? 'on' : ''}" data-act="mlBg" data-v="0">${t('bg.off')}</button></div></div>
-      <div class="list-row"><span>${t('language')}</span><div class="toggle">${['ru', 'uz', 'en'].map(l => `<button class="${getLang() === l ? 'on' : ''}" data-act="setLang" data-k="${l}">${l.toUpperCase()}</button>`).join('')}</div></div>
+      <button class="list-row" data-act="notif"><span>${t('testNotif')}</span>${I.chev.replace('<svg', '<svg width="18" height="18"')}</button>      <div class="list-row"><span>${t('language')}</span><div class="toggle">${['ru', 'uz', 'en'].map(l => `<button class="${getLang() === l ? 'on' : ''}" data-act="setLang" data-k="${l}">${l.toUpperCase()}</button>`).join('')}</div></div>
       <div class="list-row"><span>${t('theme')}</span><div class="toggle">${[['system', 'themeSystem'], ['light', 'themeLight'], ['dark', 'themeDark']].map(([k, n]) => `<button class="${S.settings.theme === k ? 'on' : ''}" data-act="setTheme" data-k="${k}">${t(n)}</button>`).join('')}</div></div>
     </div>
     <p class="muted small" style="margin:12px 4px">${t('privacy')}</p>
@@ -1224,13 +1180,8 @@ async function openScanner() {
   const video = root.querySelector('video'), frame = root.querySelector('.scan-frame'), hint = root.querySelector('.scan-hint');
   const count = root.querySelector('.scan-count');
   const aiEl = root.querySelector('.scan-ai');
-  const aiStatus = () => {
-    const a = (modelState === 'ready' ? '✦ ' : '') + t('aiModel.' + (modelState === 'idle' ? 'loading' : modelState));
-    const b = bgState === 'loading' ? t('bg.short', bgPct) : bgState === 'ready' ? t('bg.ready') : '';
-    aiEl.textContent = b ? `${a} · ${b}` : a;
-  };
-  aiStatus(); loadModel().then(aiStatus); loadBg().then(aiStatus);
-  const statusTimer = setInterval(aiStatus, 700);
+  const aiStatus = () => { aiEl.textContent = (modelState === 'ready' ? '✦ ' : '') + t('aiModel.' + (modelState === 'idle' ? 'loading' : modelState)); };
+  aiStatus(); loadModel().then(aiStatus);
   // live AI: about once a second the network looks at what's inside the frame and says what it sees
   const live = document.createElement('div'); live.className = 'scan-live'; live.hidden = true; root.appendChild(live);
   let lastLive = null, liveBusy = false;
@@ -1291,7 +1242,7 @@ async function openScanner() {
       root.appendChild(empty);
     }
   };
-  const stop = () => { stream?.getTracks().forEach(tr => tr.stop()); stream = null; removeEventListener('resize', layoutFrame); clearInterval(liveTimer); clearInterval(statusTimer); };
+  const stop = () => { stream?.getTracks().forEach(tr => tr.stop()); stream = null; removeEventListener('resize', layoutFrame); clearInterval(liveTimer); };
   const switchLens = async () => {
     useWide = !useWide; lensBtn.textContent = useWide ? '0.5×' : '1×';
     try { await open(useWide ? wideId : mainId); } catch { useWide = false; lensBtn.textContent = '1×'; try { await open(null); } catch {} }
@@ -1319,19 +1270,19 @@ async function openScanner() {
     busy = true; root.classList.add('busy'); hint.textContent = t('scanning');
     let r, ai = null;
     try {
-      [r] = await Promise.all([processPhoto(blob, s => { hint.textContent = s; }), new Promise(res => setTimeout(res, 1300))]);
+      [r] = await Promise.all([processPhoto(blob), new Promise(res => setTimeout(res, 1300))]);
       ai = await classify(r.url).catch(() => null);
       if (lastLive && (!ai || lastLive.p > ai.p)) ai = lastLive; // the live view often sees the item better than the cut-out
     } catch { root.classList.remove('busy'); hint.textContent = t('scanHint'); busy = false; toast('Error'); return; }
     root.classList.remove('busy'); hint.textContent = t('scanHint'); aiStatus();
-    showResult({ id: uid(), type: ai ? ai.type : r.guess, color: r.colors[0], brand: '', madeIn: '', size: S.profile.topSize, photo: true, _url: r.url, _colors: r.colors, _ai: ai, _ml: r.ml });
+    showResult({ id: uid(), type: ai ? ai.type : r.guess, color: r.colors[0], brand: '', madeIn: '', size: S.profile.topSize, photo: true, _url: r.url, _colors: r.colors, _ai: ai });
   };
 
   const showResult = it => {
     const card = document.createElement('div'); card.className = 'scan-result';
     const draw = () => {
       card.innerHTML = `
-        <div class="row" style="justify-content:space-between;margin-bottom:12px"><span class="badge">✦ ${t('recognized')}</span><span class="muted small">${it._ai ? t('recognizedPct', it._ai.p) : t('recognizedShape')}${it._ml ? ' · ' + t('bg.byAI') : ''}</span></div>
+        <div class="row" style="justify-content:space-between;margin-bottom:12px"><span class="badge">✦ ${t('recognized')}</span><span class="muted small">${it._ai ? t('recognizedPct', it._ai.p) : t('recognizedShape')}</span></div>
         <div class="preview"><img src="${it._url}" alt=""></div>
         <div class="detect"><div><span>${t('type')}</span><b>${TYPES[it.type][getLang()]}</b></div>
           <div><span>${t('color')}</span><b style="display:flex;align-items:center;gap:6px"><i class="swatch" style="width:14px;height:14px;background:${colorByKey(it.color).hex}"></i>${colorByKey(it.color)[getLang()]}</b></div></div>
