@@ -181,12 +181,37 @@ input[type="time"]::-webkit-date-and-time-value { text-align: left; }
 .badge { display: inline-block; font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--surface-2); }
 /* scanner */
 .scanner { position: fixed; inset: 0; max-width: var(--app-w); margin: 0 auto; overflow: hidden; z-index: 25; container-type: size; background: #0d0c0b; color: #fff; display: flex; flex-direction: column; }
-.scanner video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.scanner video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.lens-btn { font-size: 13px; font-weight: 600; }
+.scan-live { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom) + 122px); z-index: 3; white-space: nowrap;
+  background: rgba(20, 18, 16, .72); color: #fff; padding: 8px 14px; border-radius: 999px; font-size: 13px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); animation: viewIn .3s var(--ease); }
+.scan-live .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #7BD88F; margin-right: 8px; box-shadow: 0 0 0 0 rgba(123, 216, 143, .7); animation: pulse 1.4s ease-out infinite; }
+@keyframes pulse { to { box-shadow: 0 0 0 8px rgba(123, 216, 143, 0); } }
+.scan-frame.locked i { border-color: #7BD88F; }
+/* week plan, stats, brand cabinet */
+.week-strip { gap: 8px; }
+.wday { flex: none; width: 58px; padding: 8px 4px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.wday b { font-size: 17px; font-weight: 600; }
+.wday .wd-ic { width: 22px; height: 22px; display: grid; place-items: center; }
+.wday .wd-ic svg { width: 22px; height: 22px; }
+.wday.on { background: var(--btn); color: var(--btn-text); border-color: var(--btn); }
+.save-card .save-num { font-family: var(--serif); font-size: clamp(30px, 9vw, 38px); margin-top: 2px; }
+.save-card .save-num span { font-size: 16px; font-family: var(--sans); color: var(--muted); }
+.meter { height: 8px; background: var(--surface-2); border-radius: 8px; margin-top: 14px; overflow: hidden; }
+.meter i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--good)); border-radius: 8px; transition: width .6s var(--ease); }
+.stat-grid .card { padding: 12px; min-width: 0; }
+.stat-grid h3 { font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kpi h2 { margin: 4px 0 2px; }
+.bars { display: flex; align-items: flex-end; gap: 6px; height: 140px; margin-top: 12px; }
+.bar { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; }
+.bar i { display: block; width: 100%; max-width: 30px; border-radius: 8px 8px 4px 4px; background: linear-gradient(180deg, var(--accent), var(--btn)); animation: grow .6s var(--ease) backwards; transform-origin: bottom; }
+.bar span { font-size: 11px; }
+@keyframes grow { from { transform: scaleY(0); } }
 .scanner .shade { position: absolute; inset: 0; pointer-events: none; }
 .scan-top { position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; padding: calc(env(safe-area-inset-top) + 14px) 16px 0; }
 .scan-top .icon-btn, .scan-bottom .icon-btn { background: rgba(255,255,255,.14); color: #fff; box-shadow: none; backdrop-filter: blur(8px); }
 .scan-title { font-size: 15px; font-weight: 500; text-align: center; }
-.scan-frame { position: absolute; left: 11%; right: 11%; top: 16%; aspect-ratio: 4 / 5; border-radius: 20px; box-shadow: 0 0 0 100vmax rgba(0,0,0,.42); z-index: 1; }
+.scan-frame { position: absolute; left: 6%; right: 6%; top: 16%; aspect-ratio: 3 / 4; border-radius: 20px; box-shadow: 0 0 0 100vmax rgba(0,0,0,.42); z-index: 1; transition: left .3s var(--ease), top .3s var(--ease), width .3s var(--ease), height .3s var(--ease); }
 .scan-frame i { position: absolute; width: 34px; height: 34px; border: 3px solid #fff; }
 .scan-frame i:nth-child(1) { left: -2px; top: -2px; border-right: 0; border-bottom: 0; border-radius: 20px 0 0 0; }
 .scan-frame i:nth-child(2) { right: -2px; top: -2px; border-left: 0; border-bottom: 0; border-radius: 0 20px 0 0; }
